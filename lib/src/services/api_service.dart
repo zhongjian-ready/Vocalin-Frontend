@@ -1,4 +1,6 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../models/group.dart';
 import '../models/post.dart';
@@ -9,12 +11,16 @@ class ApiService {
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
 
+  static const String _configuredBaseUrlFromBuild = String.fromEnvironment(
+    'VOCALIN_API_BASE_URL',
+  );
+
   late Dio _dio;
   String? _userId;
 
   ApiService._internal() {
     _dio = Dio(BaseOptions(
-      baseUrl: 'https://api.vocalin.top/api',
+      baseUrl: _resolveBaseUrl(),
       connectTimeout: const Duration(seconds: 5),
       receiveTimeout: const Duration(seconds: 3),
     ));
@@ -45,6 +51,30 @@ class ApiService {
         return handler.next(e);
       },
     ));
+  }
+
+  static String _resolveBaseUrl() {
+    final configuredBaseUrlFromEnvFile = dotenv.env['VOCALIN_API_BASE_URL'];
+
+    if (configuredBaseUrlFromEnvFile != null &&
+        configuredBaseUrlFromEnvFile.isNotEmpty) {
+      return configuredBaseUrlFromEnvFile;
+    }
+
+    if (_configuredBaseUrlFromBuild.isNotEmpty) {
+      return _configuredBaseUrlFromBuild;
+    }
+
+    if (kIsWeb) {
+      return 'http://localhost:8080/api';
+    }
+
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return 'http://10.0.2.2:8080/api';
+      default:
+        return 'http://127.0.0.1:8080/api';
+    }
   }
 
   void setUserId(String userId) {

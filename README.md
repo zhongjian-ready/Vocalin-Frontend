@@ -47,7 +47,22 @@ lib/
     ```bash
     flutter pub get
     ```
-3.  **Run the App**:
+3.  **Configure Backend Base URL**:
+    Edit `.env` and set `VOCALIN_API_BASE_URL` to the backend you want.
+
+    Example for local Go service:
+
+    ```bash
+    VOCALIN_API_BASE_URL=http://localhost:8080/api
+    ```
+
+    Example for online service:
+
+    ```bash
+    VOCALIN_API_BASE_URL=https://api.vocalin.top/api
+    ```
+
+4.  **Run the App**:
     ```bash
     flutter run
     ```
