@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../services/data_service.dart';
+
 import '../../../models/post.dart';
+import '../../../services/data_service.dart';
 
 class AlbumTab extends StatelessWidget {
   const AlbumTab({super.key});
@@ -10,7 +11,12 @@ class AlbumTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<DataService>(
       builder: (context, dataService, child) {
-        final photos = dataService.posts.where((p) => p.type == PostType.photo).toList();
+        final photos =
+            dataService.posts.where((p) => p.type == PostType.photo).toList();
+
+        if (dataService.isLoading && photos.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
         if (photos.isEmpty) {
           return const Center(child: Text('No photos yet. Upload one!'));
@@ -34,8 +40,9 @@ class AlbumTab extends StatelessWidget {
                   Image.network(
                     photo.imageUrl ?? '',
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) =>
-                        Container(color: Colors.grey[300], child: const Icon(Icons.broken_image)),
+                    errorBuilder: (context, error, stackTrace) => Container(
+                        color: Colors.grey[300],
+                        child: const Icon(Icons.broken_image)),
                   ),
                   Positioned(
                     bottom: 0,
@@ -46,7 +53,8 @@ class AlbumTab extends StatelessWidget {
                       padding: const EdgeInsets.all(4),
                       child: Text(
                         photo.content ?? '',
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 12),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),

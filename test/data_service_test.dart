@@ -1,12 +1,17 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vocalin/src/services/data_service.dart';
 
 void main() {
+  setUpAll(() async {
+    await dotenv.load(fileName: '.env');
+  });
+
   group('DataService Tests', () {
     late DataService dataService;
 
     setUp(() {
-      dataService = DataService();
+      dataService = DataService(autoInitialize: false);
     });
 
     test('Initial data should be empty before fetch', () {

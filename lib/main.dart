@@ -5,6 +5,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 
 import 'src/app.dart';
+import 'src/services/auth_service.dart';
 import 'src/services/data_service.dart';
 
 Future<void> main() async {
@@ -13,8 +14,18 @@ Future<void> main() async {
     await dotenv.load(fileName: '.env');
 
     runApp(
-      ChangeNotifierProvider(
-        create: (context) => DataService(),
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (context) => AuthService()),
+          ChangeNotifierProxyProvider<AuthService, DataService>(
+            create: (context) => DataService(),
+            update: (context, authService, dataService) {
+              final service = dataService ?? DataService();
+              service.syncAuthState(authService.currentUser);
+              return service;
+            },
+          ),
+        ],
         child: const VocalinApp(),
       ),
     );

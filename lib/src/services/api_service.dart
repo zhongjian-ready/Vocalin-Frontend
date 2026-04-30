@@ -11,26 +11,49 @@ class ApiService {
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
 
+  static const _skipAuthRefreshKey = 'skipAuthRefresh';
+  static const _didRetryAuthRefreshKey = 'didRetryAuthRefresh';
+
   static const String _configuredBaseUrlFromBuild = String.fromEnvironment(
     'VOCALIN_API_BASE_URL',
   );
 
   late Dio _dio;
+  String? _accessToken;
+  String? _refreshToken;
   String? _userId;
+  Future<String?>? _refreshAccessTokenFuture;
+  Future<void> Function(String accessToken, String? refreshToken)?
+      _onAuthTokensUpdated;
+  Future<void> Function()? _onUnauthorized;
 
   ApiService._internal() {
-    _dio = Dio(BaseOptions(
+    _dio = Dio(_buildBaseOptions());
+    _configureDio(_dio);
+  }
+
+  ApiService.test({Dio? dio}) {
+    _dio = dio ?? Dio(_buildBaseOptions());
+    _configureDio(_dio);
+  }
+
+  static BaseOptions _buildBaseOptions() {
+    return BaseOptions(
       baseUrl: _resolveBaseUrl(),
       connectTimeout: const Duration(seconds: 5),
       receiveTimeout: const Duration(seconds: 3),
-    ));
+    );
+  }
 
-    // Add interceptor to inject User ID and Log requests
-    _dio.interceptors.add(InterceptorsWrapper(
+  void _configureDio(Dio dio) {
+    dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) {
         print('🌐 [API Request] ${options.method} ${options.uri}');
         print('   Headers: ${options.headers}');
         print('   Data: ${options.data}');
+        if (_accessToken != null && _accessToken!.isNotEmpty) {
+          options.headers['Authorization'] = 'Bearer $_accessToken';
+        }
         if (_userId != null) {
           options.headers['X-User-ID'] = _userId;
         }
@@ -48,9 +71,137 @@ class ApiService {
           print('   Status: ${e.response?.statusCode}');
           print('   Data: ${e.response?.data}');
         }
-        return handler.next(e);
+        _handleError(e, handler);
       },
     ));
+  }
+
+  Future<void> _handleError(
+    DioException error,
+    ErrorInterceptorHandler handler,
+  ) async {
+    if (!_shouldAttemptTokenRefresh(error)) {
+      handler.next(error);
+      return;
+    }
+
+    try {
+      final accessToken = await _refreshAccessToken();
+      if (accessToken == null || accessToken.isEmpty) {
+        await _notifyUnauthorized();
+        handler.next(error);
+        return;
+      }
+
+      final response = await _retryRequest(error.requestOptions);
+      handler.resolve(response);
+      return;
+    } catch (refreshError) {
+      print('❌ [API Refresh Error] $refreshError');
+      await _notifyUnauthorized();
+      handler.next(error);
+    }
+  }
+
+  bool _shouldAttemptTokenRefresh(DioException error) {
+    final statusCode = error.response?.statusCode;
+    final extra = error.requestOptions.extra;
+
+    return statusCode == 401 &&
+        extra[_skipAuthRefreshKey] != true &&
+        extra[_didRetryAuthRefreshKey] != true;
+  }
+
+  Future<void> _notifyUnauthorized() async {
+    if (_onUnauthorized == null) {
+      return;
+    }
+
+    await _onUnauthorized!.call();
+  }
+
+  Future<String?> _refreshAccessToken() async {
+    final inFlightRefresh = _refreshAccessTokenFuture;
+    if (inFlightRefresh != null) {
+      return inFlightRefresh;
+    }
+
+    final refreshToken = _refreshToken;
+    if (refreshToken == null || refreshToken.isEmpty) {
+      return null;
+    }
+
+    final future = _refreshAccessTokenInternal(refreshToken);
+    _refreshAccessTokenFuture = future;
+
+    try {
+      return await future;
+    } finally {
+      if (identical(_refreshAccessTokenFuture, future)) {
+        _refreshAccessTokenFuture = null;
+      }
+    }
+  }
+
+  Future<String?> _refreshAccessTokenInternal(String refreshToken) async {
+    final response = await _dio.post(
+      '/auth/refresh',
+      data: {'refresh_token': refreshToken},
+      options: Options(extra: const {_skipAuthRefreshKey: true}),
+    );
+
+    final tokens = _parseAuthTokens(response.data);
+    final accessToken = tokens.accessToken;
+    if (accessToken == null || accessToken.isEmpty) {
+      throw const FormatException(
+        'Refresh response does not contain an access token.',
+      );
+    }
+
+    _accessToken = accessToken;
+    if (tokens.refreshToken != null && tokens.refreshToken!.isNotEmpty) {
+      _refreshToken = tokens.refreshToken;
+    }
+
+    if (_onAuthTokensUpdated != null) {
+      await _onAuthTokensUpdated!.call(_accessToken!, _refreshToken);
+    }
+
+    return _accessToken;
+  }
+
+  Future<Response<dynamic>> _retryRequest(RequestOptions requestOptions) {
+    final headers = Map<String, dynamic>.from(requestOptions.headers);
+    headers.remove('Authorization');
+
+    final extra = Map<String, dynamic>.from(requestOptions.extra);
+    extra[_didRetryAuthRefreshKey] = true;
+
+    return _dio.request<dynamic>(
+      requestOptions.path,
+      data: requestOptions.data,
+      queryParameters: requestOptions.queryParameters,
+      cancelToken: requestOptions.cancelToken,
+      onReceiveProgress: requestOptions.onReceiveProgress,
+      onSendProgress: requestOptions.onSendProgress,
+      options: Options(
+        method: requestOptions.method,
+        sendTimeout: requestOptions.sendTimeout,
+        receiveTimeout: requestOptions.receiveTimeout,
+        extra: extra,
+        headers: headers,
+        responseType: requestOptions.responseType,
+        contentType: requestOptions.contentType,
+        validateStatus: requestOptions.validateStatus,
+        receiveDataWhenStatusError: requestOptions.receiveDataWhenStatusError,
+        followRedirects: requestOptions.followRedirects,
+        maxRedirects: requestOptions.maxRedirects,
+        persistentConnection: requestOptions.persistentConnection,
+        requestEncoder: requestOptions.requestEncoder,
+        responseDecoder: requestOptions.responseDecoder,
+        listFormat: requestOptions.listFormat,
+      ),
+    );
   }
 
   static String _resolveBaseUrl() {
@@ -77,38 +228,210 @@ class ApiService {
     }
   }
 
-  void setUserId(String userId) {
+  void setUserId(String? userId) {
     _userId = userId;
   }
 
+  void setAccessToken(String? accessToken) {
+    _accessToken = accessToken;
+  }
+
+  void setRefreshToken(String? refreshToken) {
+    _refreshToken = refreshToken;
+  }
+
+  void registerAuthStateHandlers({
+    Future<void> Function(String accessToken, String? refreshToken)?
+        onAuthTokensUpdated,
+    Future<void> Function()? onUnauthorized,
+  }) {
+    _onAuthTokensUpdated = onAuthTokensUpdated;
+    _onUnauthorized = onUnauthorized;
+  }
+
   // Auth
-  Future<User> login(String wechatId,
-      {String? nickname, String? avatarUrl}) async {
+  Future<AuthResult> loginWithNickname({
+    required String nickname,
+    required String password,
+  }) async {
     final response = await _dio.post('/auth/login', data: {
-      'wechat_id': wechatId,
-      'nickname': nickname ?? 'User',
-      'avatar_url': avatarUrl,
+      'nickname': nickname,
+      'password': password,
     });
-    final user = User.fromJson(response.data);
-    setUserId(user.id.toString());
-    return user;
+
+    return _parseAuthResult(response.data);
+  }
+
+  Future<AuthResult> register({
+    required String nickname,
+    required String phone,
+    required String password,
+    required String confirmPassword,
+  }) async {
+    final response = await _dio.post('/auth/register', data: {
+      'nickname': nickname,
+      'phone': phone,
+      'password': password,
+      'confirm_password': confirmPassword,
+    });
+
+    return _parseAuthResult(response.data);
+  }
+
+  Future<void> logout({required String refreshToken}) async {
+    await _dio.post(
+      '/auth/logout',
+      data: {
+        'refresh_token': refreshToken,
+      },
+      options: Options(extra: const {_skipAuthRefreshKey: true}),
+    );
+  }
+
+  AuthResult _parseAuthResult(dynamic payload) {
+    final rootMap = _asMap(payload);
+    final dataMap = _asMap(rootMap['data']);
+    final source = dataMap.isNotEmpty ? dataMap : rootMap;
+
+    final userMap = _extractUserMap(source, rootMap);
+    if (userMap.isEmpty) {
+      throw const FormatException('Auth response does not contain user data.');
+    }
+
+    final accessToken = _firstNonEmptyString([
+      source['access_token'],
+      source['accessToken'],
+      source['token'],
+      rootMap['access_token'],
+      rootMap['accessToken'],
+      rootMap['token'],
+    ]);
+
+    final refreshToken = _firstNonEmptyString([
+      source['refresh_token'],
+      source['refreshToken'],
+      rootMap['refresh_token'],
+      rootMap['refreshToken'],
+    ]);
+
+    return AuthResult(
+      user: User.fromJson(userMap),
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+    );
+  }
+
+  AuthTokens _parseAuthTokens(dynamic payload) {
+    final rootMap = _asMap(payload);
+    final dataMap = _asMap(rootMap['data']);
+    final source = dataMap.isNotEmpty ? dataMap : rootMap;
+
+    final accessToken = _firstNonEmptyString([
+      source['access_token'],
+      source['accessToken'],
+      source['token'],
+      rootMap['access_token'],
+      rootMap['accessToken'],
+      rootMap['token'],
+    ]);
+
+    final refreshToken = _firstNonEmptyString([
+      source['refresh_token'],
+      source['refreshToken'],
+      rootMap['refresh_token'],
+      rootMap['refreshToken'],
+    ]);
+
+    return AuthTokens(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+    );
+  }
+
+  Map<String, dynamic> _extractUserMap(
+    Map<String, dynamic> source,
+    Map<String, dynamic> rootMap,
+  ) {
+    final nestedUser = _asMap(source['user']);
+    if (nestedUser.isNotEmpty) {
+      return nestedUser;
+    }
+
+    final rootUser = _asMap(rootMap['user']);
+    if (rootUser.isNotEmpty) {
+      return rootUser;
+    }
+
+    if (source['nickname'] != null && source['id'] != null) {
+      return source;
+    }
+
+    if (rootMap['nickname'] != null && rootMap['id'] != null) {
+      return rootMap;
+    }
+
+    return <String, dynamic>{};
+  }
+
+  Map<String, dynamic> _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+
+    if (value is Map) {
+      return value.map(
+        (key, dynamic mapValue) => MapEntry(key.toString(), mapValue),
+      );
+    }
+
+    return <String, dynamic>{};
+  }
+
+  String? _firstNonEmptyString(List<dynamic> candidates) {
+    for (final candidate in candidates) {
+      if (candidate is String && candidate.isNotEmpty) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  Map<String, dynamic> _extractResponseDataMap(dynamic payload) {
+    final rootMap = _asMap(payload);
+    final dataMap = _asMap(rootMap['data']);
+    return dataMap.isNotEmpty ? dataMap : rootMap;
+  }
+
+  List<dynamic> _extractResponseDataList(dynamic payload) {
+    if (payload is List) {
+      return payload;
+    }
+
+    final rootMap = _asMap(payload);
+    final data = rootMap['data'];
+    if (data is List) {
+      return data;
+    }
+
+    return const [];
   }
 
   // Group
   Future<Group> getGroup() async {
     final response = await _dio.get('/groups/me');
-    return Group.fromJson(response.data);
+    return Group.fromJson(_extractResponseDataMap(response.data));
   }
 
   Future<Group> createGroup(String name) async {
     final response = await _dio.post('/groups/create', data: {'name': name});
-    return Group.fromJson(response.data);
+    return Group.fromJson(_extractResponseDataMap(response.data));
   }
 
   Future<Group> joinGroup(String inviteCode) async {
     final response =
         await _dio.post('/groups/join', data: {'invite_code': inviteCode});
-    return Group.fromJson(response.data);
+    return Group.fromJson(_extractResponseDataMap(response.data));
   }
 
   // Home
@@ -123,7 +446,9 @@ class ApiService {
   // Records
   Future<List<Post>> getPhotos() async {
     final response = await _dio.get('/records/photos');
-    return (response.data as List).map((e) => Post.fromPhotoJson(e)).toList();
+    return _extractResponseDataList(response.data)
+        .map((item) => Post.fromPhotoJson(_asMap(item)))
+        .toList();
   }
 
   Future<void> uploadPhoto(String url, String description) async {
@@ -135,7 +460,9 @@ class ApiService {
 
   Future<List<Post>> getNotes() async {
     final response = await _dio.get('/records/notes');
-    return (response.data as List).map((e) => Post.fromNoteJson(e)).toList();
+    return _extractResponseDataList(response.data)
+        .map((item) => Post.fromNoteJson(_asMap(item)))
+        .toList();
   }
 
   Future<void> createNote(String content) async {
@@ -148,7 +475,9 @@ class ApiService {
 
   Future<List<Wish>> getWishlist() async {
     final response = await _dio.get('/records/wishlist');
-    return (response.data as List).map((e) => Wish.fromJson(e)).toList();
+    return _extractResponseDataList(response.data)
+        .map((item) => Wish.fromJson(_asMap(item)))
+        .toList();
   }
 
   Future<void> addWish(String content) async {
@@ -158,4 +487,30 @@ class ApiService {
   Future<void> completeWish(int id) async {
     await _dio.put('/records/wishlist/$id/complete');
   }
+
+  Future<void> uncompleteWish(int id) async {
+    await _dio.put('/records/wishlist/$id/incomplete');
+  }
+}
+
+class AuthResult {
+  const AuthResult({
+    required this.user,
+    this.accessToken,
+    this.refreshToken,
+  });
+
+  final User user;
+  final String? accessToken;
+  final String? refreshToken;
+}
+
+class AuthTokens {
+  const AuthTokens({
+    required this.accessToken,
+    required this.refreshToken,
+  });
+
+  final String? accessToken;
+  final String? refreshToken;
 }

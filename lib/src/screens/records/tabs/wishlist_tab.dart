@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../../services/data_service.dart';
 
 class WishlistTab extends StatelessWidget {
@@ -10,6 +11,10 @@ class WishlistTab extends StatelessWidget {
     return Consumer<DataService>(
       builder: (context, dataService, child) {
         final wishes = dataService.wishes;
+
+        if (dataService.isLoading && wishes.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
         return Column(
           children: [
@@ -30,7 +35,9 @@ class WishlistTab extends StatelessWidget {
                     title: Text(
                       wish.title,
                       style: TextStyle(
-                        decoration: wish.isCompleted ? TextDecoration.lineThrough : null,
+                        decoration: wish.isCompleted
+                            ? TextDecoration.lineThrough
+                            : null,
                         color: wish.isCompleted ? Colors.grey : Colors.black,
                       ),
                     ),
@@ -56,7 +63,8 @@ class WishlistTab extends StatelessWidget {
         title: const Text('New Wish'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(hintText: 'What do you want to do together?'),
+          decoration: const InputDecoration(
+              hintText: 'What do you want to do together?'),
         ),
         actions: [
           TextButton(

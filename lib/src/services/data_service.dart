@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/group.dart';
@@ -7,21 +10,17 @@ import '../models/wish.dart';
 import 'api_service.dart';
 
 class DataService extends ChangeNotifier {
-  static final DataService _instance = DataService._internal();
-  factory DataService() => _instance;
+  DataService({ApiService? apiService, bool autoInitialize = true})
+      : _api = apiService ?? ApiService();
 
-  final ApiService _api = ApiService();
-
-  DataService._internal() {
-    print('🚀 DataService initialized');
-    _initData();
-  }
+  final ApiService _api;
 
   User? _currentUser;
   Group? _currentGroup;
   List<Post> _posts = [];
   List<Wish> _wishes = [];
   bool _isLoading = false;
+  bool _hasLoadedRemoteData = false;
 
   User? get currentUser => _currentUser;
   Group? get currentGroup => _currentGroup;
@@ -32,110 +31,254 @@ class DataService extends ChangeNotifier {
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
 
-  Future<void> _initData() async {
-    print('🔄 _initData started');
+  void syncAuthState(User? user) {
+    final userChanged = !_isSameUser(_currentUser, user);
+    if (!userChanged && (_hasLoadedRemoteData || _isLoading)) {
+      return;
+    }
+
+    _errorMessage = null;
+    _currentUser = user;
+
+    if (user == null) {
+      _resetData();
+      notifyListeners();
+      return;
+    }
+
+    if (userChanged) {
+      _currentGroup = null;
+      _posts = [];
+      _wishes = [];
+      _hasLoadedRemoteData = false;
+    }
+
+    unawaited(refreshData());
+  }
+
+  Future<void> refreshData() async {
+    if (_currentUser == null || _isLoading) {
+      return;
+    }
+
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      // Auto-login for demo purposes
-      // In a real app, you'd check for a stored token or show a login screen
-      print('🔑 Attempting login...');
-      _currentUser = await _api.login('wx_user_001', nickname: 'Alice');
-      print('✅ Login successful: ${_currentUser?.nickname}');
+      final group = await _loadGroupOrNull();
+      if (group == null) {
+        _currentGroup = null;
+        _posts = [];
+        _wishes = [];
+        _hasLoadedRemoteData = true;
+        return;
+      }
 
-      await _refreshGroupData();
-    } catch (e) {
-      print('❌ Error initializing data: $e');
-      debugPrint('Error initializing data: $e');
-      _errorMessage = e.toString();
+      final results = await Future.wait<dynamic>([
+        _api.getPhotos(),
+        _api.getNotes(),
+        _api.getWishlist(),
+      ]);
+
+      final photos = results[0] as List<Post>;
+      final notes = results[1] as List<Post>;
+      final wishes = results[2] as List<Wish>;
+
+      _currentGroup = group;
+      _posts = [...photos, ...notes]
+        ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
+      _wishes = wishes;
+      _currentUser = _resolveCurrentUserFromGroup(group) ?? _currentUser;
+      _hasLoadedRemoteData = true;
+    } on DioException catch (error) {
+      _errorMessage = _describeDioError(error);
+    } catch (error) {
+      _errorMessage = error.toString();
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  Future<void> _refreshGroupData() async {
-    try {
-      _currentGroup = await _api.getGroup();
-
-      final photos = await _api.getPhotos();
-      final notes = await _api.getNotes();
-      _posts = [...photos, ...notes]
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-      _wishes = await _api.getWishlist();
-    } catch (e) {
-      debugPrint('Error refreshing group data: $e');
-      // If 404 or similar, it might mean user has no group
-      _currentGroup = null;
-    }
-  }
-
   Future<void> updateStatus(String status) async {
-    try {
-      await _api.updateStatus(status);
-      if (_currentUser != null) {
-        // Optimistic update
-        _currentUser = User(
-          id: _currentUser!.id,
-          nickname: _currentUser!.nickname,
-          avatarUrl: _currentUser!.avatarUrl,
-          currentStatus: status,
-          groupId: _currentUser!.groupId,
-        );
-        notifyListeners();
-      }
-    } catch (e) {
-      debugPrint('Error updating status: $e');
+    if (_currentUser == null) {
+      return;
     }
+
+    await _runMutation(() async {
+      await _api.updateStatus(status);
+
+      _currentUser = User(
+        id: _currentUser!.id,
+        nickname: _currentUser!.nickname,
+        avatarUrl: _currentUser!.avatarUrl,
+        currentStatus: status,
+        groupId: _currentUser!.groupId,
+      );
+
+      if (_currentGroup != null) {
+        final updatedMembers = _currentGroup!.members.map((member) {
+          if (member.id != _currentUser!.id) {
+            return member;
+          }
+
+          return _currentUser!;
+        }).toList();
+
+        _currentGroup = Group(
+          id: _currentGroup!.id,
+          name: _currentGroup!.name,
+          inviteCode: _currentGroup!.inviteCode,
+          members: updatedMembers,
+          pinnedMessage: _currentGroup!.pinnedMessage,
+          timerStartDate: _currentGroup!.timerStartDate,
+          timerTitle: _currentGroup!.timerTitle,
+        );
+      }
+
+      notifyListeners();
+    });
   }
 
   Future<void> addPost(Post post) async {
-    // This method signature is a bit weird now since we have separate APIs
-    // But for compatibility with existing UI calling code:
-    try {
-      if (post.type == PostType.note && post.content != null) {
-        await _api.createNote(post.content!);
-      } else if (post.type == PostType.photo && post.imageUrl != null) {
-        await _api.uploadPhoto(post.imageUrl!, post.content ?? '');
+    await _runMutation(() async {
+      if (post.type == PostType.photo) {
+        final imageUrl = post.imageUrl?.trim();
+        if (imageUrl == null || imageUrl.isEmpty) {
+          return;
+        }
+
+        await _api.uploadPhoto(imageUrl, post.content?.trim() ?? '');
+      } else {
+        final content = post.content?.trim();
+        if (content == null || content.isEmpty) {
+          return;
+        }
+
+        await _api.createNote(content);
       }
-      await _refreshGroupData();
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error adding post: $e');
-    }
+
+      await refreshData();
+    });
   }
 
   Future<void> toggleWish(int wishId) async {
-    try {
-      await _api.completeWish(wishId);
-      // Refresh to get updated state
-      _wishes = await _api.getWishlist();
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error toggling wish: $e');
+    final wish = _wishes.where((item) => item.id == wishId).firstOrNull;
+    if (wish == null) {
+      return;
     }
+
+    await _runMutation(() async {
+      if (wish.isCompleted) {
+        await _api.uncompleteWish(wishId);
+      } else {
+        await _api.completeWish(wishId);
+      }
+      await _reloadWishlist();
+    });
   }
 
   Future<void> addWish(String title) async {
-    try {
-      await _api.addWish(title);
-      _wishes = await _api.getWishlist();
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error adding wish: $e');
+    final trimmedTitle = title.trim();
+    if (trimmedTitle.isEmpty) {
+      return;
     }
+
+    await _runMutation(() async {
+      await _api.addWish(trimmedTitle);
+      await _reloadWishlist();
+    });
   }
 
   Future<void> updateTopMessage(String message) async {
-    try {
-      await _api.updatePinnedMessage(message);
-      _currentGroup = await _api.getGroup();
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error updating top message: $e');
+    if (_currentGroup == null) {
+      return;
     }
+
+    await _runMutation(() async {
+      await _api.updatePinnedMessage(message);
+
+      _currentGroup = Group(
+        id: _currentGroup!.id,
+        name: _currentGroup!.name,
+        inviteCode: _currentGroup!.inviteCode,
+        members: _currentGroup!.members,
+        pinnedMessage: message,
+        timerStartDate: _currentGroup!.timerStartDate,
+        timerTitle: _currentGroup!.timerTitle,
+      );
+      notifyListeners();
+    });
+  }
+
+  Future<Group?> _loadGroupOrNull() async {
+    try {
+      return await _api.getGroup();
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) {
+        return null;
+      }
+
+      rethrow;
+    }
+  }
+
+  Future<void> _reloadWishlist() async {
+    _wishes = await _api.getWishlist();
+    notifyListeners();
+  }
+
+  User? _resolveCurrentUserFromGroup(Group group) {
+    final currentUserId = _currentUser?.id;
+    if (currentUserId == null) {
+      return _currentUser;
+    }
+
+    for (final member in group.members) {
+      if (member.id == currentUserId) {
+        return member;
+      }
+    }
+
+    return _currentUser;
+  }
+
+  void _resetData() {
+    _currentGroup = null;
+    _posts = [];
+    _wishes = [];
+    _isLoading = false;
+    _hasLoadedRemoteData = false;
+  }
+
+  String _describeDioError(DioException error) {
+    final data = error.response?.data;
+    if (data is Map) {
+      final message = data['message'] ?? data['error'];
+      if (message is String && message.isNotEmpty) {
+        return message;
+      }
+    }
+
+    return error.message ?? 'Request failed';
+  }
+
+  Future<void> _runMutation(Future<void> Function() action) async {
+    _errorMessage = null;
+
+    try {
+      await action();
+    } on DioException catch (error) {
+      _errorMessage = _describeDioError(error);
+      notifyListeners();
+    } catch (error) {
+      _errorMessage = error.toString();
+      notifyListeners();
+    }
+  }
+
+  bool _isSameUser(User? previous, User? next) {
+    return previous?.id == next?.id;
   }
 }

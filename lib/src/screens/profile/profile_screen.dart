@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../../services/auth_service.dart';
 import '../../services/data_service.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -23,7 +25,8 @@ class ProfileScreen extends StatelessWidget {
                 accountEmail: Text('Status: ${user.currentStatus ?? "None"}'),
                 currentAccountPicture: CircleAvatar(
                   backgroundColor: Colors.white,
-                  child: Text(user.name[0].toUpperCase(), style: const TextStyle(fontSize: 24)),
+                  child: Text(user.name[0].toUpperCase(),
+                      style: const TextStyle(fontSize: 24)),
                 ),
                 decoration: const BoxDecoration(color: Colors.pinkAccent),
               ),
@@ -34,7 +37,9 @@ class ProfileScreen extends StatelessWidget {
                 trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                 onTap: () {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('WeChat binding not implemented in demo')),
+                    const SnackBar(
+                        content:
+                            Text('WeChat binding not implemented in demo')),
                   );
                 },
               ),
@@ -48,7 +53,9 @@ class ProfileScreen extends StatelessWidget {
                   onTap: () {
                     // Copy to clipboard logic would go here
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Copied invite code: ${group.inviteCode}')),
+                      SnackBar(
+                          content:
+                              Text('Copied invite code: ${group.inviteCode}')),
                     );
                   },
                 ),
@@ -72,15 +79,19 @@ class ProfileScreen extends StatelessWidget {
                 subtitle: const Text('Send to email'),
                 onTap: () {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Export request sent to email')),
+                    const SnackBar(
+                        content: Text('Export request sent to email')),
                   );
                 },
               ),
               const Divider(),
               ListTile(
                 leading: const Icon(Icons.logout, color: Colors.red),
-                title: const Text('Log Out', style: TextStyle(color: Colors.red)),
-                onTap: () {},
+                title:
+                    const Text('Log Out', style: TextStyle(color: Colors.red)),
+                onTap: () async {
+                  await context.read<AuthService>().logout();
+                },
               ),
             ],
           );

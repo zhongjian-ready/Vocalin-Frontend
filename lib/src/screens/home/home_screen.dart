@@ -22,6 +22,10 @@ class HomeScreen extends StatelessWidget {
       ),
       body: Consumer<DataService>(
         builder: (context, dataService, child) {
+          if (dataService.isLoading && dataService.currentGroup == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
           if (dataService.errorMessage != null) {
             return Center(
               child: Padding(

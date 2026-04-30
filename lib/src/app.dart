@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'screens/main_screen.dart';
+
+import 'navigation/app_router.dart';
 
 class VocalinApp extends StatelessWidget {
   const VocalinApp({super.key});
@@ -9,11 +10,16 @@ class VocalinApp extends StatelessWidget {
     return MaterialApp(
       title: 'Vocalin',
       theme: ThemeData(
-        primarySwatch: Colors.pink,
         useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF5F5F5),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFCA7C56),
+          primary: const Color(0xFFCA7C56),
+          secondary: const Color(0xFFE9B27D),
+          surface: const Color(0xFFFFFBF7),
+        ),
+        scaffoldBackgroundColor: const Color(0xFFFFFBF7),
       ),
-      home: const MainScreen(),
+      onGenerateRoute: AppRouter.onGenerateRoute,
     );
   }
 }

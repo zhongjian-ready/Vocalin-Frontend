@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../../../services/data_service.dart';
-import '../../../models/post.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+
+import '../../../models/post.dart';
+import '../../../services/data_service.dart';
 
 class NotesTab extends StatelessWidget {
   const NotesTab({super.key});
@@ -11,7 +12,12 @@ class NotesTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<DataService>(
       builder: (context, dataService, child) {
-        final notes = dataService.posts.where((p) => p.type == PostType.note).toList();
+        final notes =
+            dataService.posts.where((p) => p.type == PostType.note).toList();
+
+        if (dataService.isLoading && notes.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
         if (notes.isEmpty) {
           return const Center(child: Text('No notes yet. Leave a message!'));
@@ -32,7 +38,9 @@ class NotesTab extends StatelessWidget {
                   children: [
                     Text(
                       note.content ?? '',
-                      style: const TextStyle(fontSize: 16, fontFamily: 'Cursive'), // Handwritten feel
+                      style: const TextStyle(
+                          fontSize: 16,
+                          fontFamily: 'Cursive'), // Handwritten feel
                     ),
                     const SizedBox(height: 8),
                     Text(

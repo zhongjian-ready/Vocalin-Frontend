@@ -1,31 +1,39 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
-import 'home/home_screen.dart';
-import 'profile/profile_screen.dart';
-import 'records/records_screen.dart';
+import '../navigation/app_destinations.dart';
+import '../navigation/app_routes.dart';
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  const MainScreen({super.key, this.initialRoute = AppRoutes.home});
+
+  final String initialRoute;
 
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
 
 class _MainScreenState extends State<MainScreen> {
-  int _currentIndex = 0;
+  late int _currentIndex;
 
-  List<Widget> get _screens => const [
-        HomeScreen(),
-        RecordsScreen(),
-        ProfileScreen(),
-      ];
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = _indexForRoute(widget.initialRoute);
+  }
+
+  int _indexForRoute(String route) {
+    return appDestinations
+        .indexWhere((destination) => destination.route == route);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SizedBox.expand(
-        child: _screens[_currentIndex],
+      body: IndexedStack(
+        index: _currentIndex < 0 ? 0 : _currentIndex,
+        children: [
+          for (final destination in appDestinations) destination.screen,
+        ],
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
@@ -34,19 +42,12 @@ class _MainScreenState extends State<MainScreen> {
             _currentIndex = index;
           });
         },
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(CupertinoIcons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(CupertinoIcons.collections),
-            label: 'Records',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(CupertinoIcons.person),
-            label: 'Profile',
-          ),
+        items: [
+          for (final destination in appDestinations)
+            BottomNavigationBarItem(
+              icon: Icon(destination.icon),
+              label: destination.label,
+            ),
         ],
       ),
     );

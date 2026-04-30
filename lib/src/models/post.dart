@@ -26,7 +26,11 @@ class Post {
       type: PostType.photo,
       imageUrl: json['url'] as String?,
       content: json['description'] as String?,
-      createdAt: DateTime.tryParse((json['createdAt'] ?? json['CreatedAt'] ?? json['created_at']) as String? ?? '') ?? DateTime.now(),
+      createdAt: DateTime.tryParse((json['createdAt'] ??
+                  json['CreatedAt'] ??
+                  json['created_at']) as String? ??
+              '') ??
+          DateTime.now(),
     );
   }
 
@@ -38,7 +42,12 @@ class Post {
       content: json['content'] as String?,
       color: json['color'] as String?,
       isBurned: json['is_burned'] as bool? ?? false,
-      createdAt: DateTime.tryParse((json['created_at'] ?? json['CreatedAt']) as String? ?? '') ?? DateTime.now(),
+      createdAt: DateTime.tryParse(
+            (json['createdAt'] ?? json['created_at'] ?? json['CreatedAt'])
+                    as String? ??
+                '',
+          ) ??
+          DateTime.now(),
     );
   }
 }
