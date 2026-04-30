@@ -27,6 +27,7 @@ class DataService extends ChangeNotifier {
   List<Post> get posts => _posts;
   List<Wish> get wishes => _wishes;
   bool get isLoading => _isLoading;
+  bool get hasJoinedGroup => _currentGroup != null;
 
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
@@ -212,11 +213,45 @@ class DataService extends ChangeNotifier {
     });
   }
 
+  Future<void> createGroup(String name) async {
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) {
+      return;
+    }
+
+    await _runMutation(() async {
+      final group = await _api.createGroup(trimmedName);
+      _applyGroup(group);
+      _posts = [];
+      _wishes = [];
+      _hasLoadedRemoteData = true;
+      notifyListeners();
+      await refreshData();
+    });
+  }
+
+  Future<void> joinGroup(String inviteCode) async {
+    final trimmedInviteCode = inviteCode.trim();
+    if (trimmedInviteCode.isEmpty) {
+      return;
+    }
+
+    await _runMutation(() async {
+      final group = await _api.joinGroup(trimmedInviteCode);
+      _applyGroup(group);
+      _posts = [];
+      _wishes = [];
+      _hasLoadedRemoteData = true;
+      notifyListeners();
+      await refreshData();
+    });
+  }
+
   Future<Group?> _loadGroupOrNull() async {
     try {
       return await _api.getGroup();
     } on DioException catch (error) {
-      if (error.response?.statusCode == 404) {
+      if (error.response?.statusCode == 404 || _isNoGroupError(error)) {
         return null;
       }
 
@@ -252,6 +287,11 @@ class DataService extends ChangeNotifier {
     _hasLoadedRemoteData = false;
   }
 
+  void _applyGroup(Group group) {
+    _currentGroup = group;
+    _currentUser = _resolveCurrentUserFromGroup(group) ?? _currentUser;
+  }
+
   String _describeDioError(DioException error) {
     final data = error.response?.data;
     if (data is Map) {
@@ -262,6 +302,19 @@ class DataService extends ChangeNotifier {
     }
 
     return error.message ?? 'Request failed';
+  }
+
+  bool _isNoGroupError(DioException error) {
+    final statusCode = error.response?.statusCode;
+    if (statusCode == 404) {
+      return true;
+    }
+
+    final message = _describeDioError(error).toLowerCase();
+    return message.contains('用户尚未加入空间') ||
+        message.contains('未加入空间') ||
+        message.contains('not joined') ||
+        message.contains('no group');
   }
 
   Future<void> _runMutation(Future<void> Function() action) async {

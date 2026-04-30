@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../services/auth_service.dart';
 import '../../services/data_service.dart';
+import 'space_management_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -48,14 +49,30 @@ class ProfileScreen extends StatelessWidget {
                 ListTile(
                   leading: const Icon(Icons.group),
                   title: const Text('Space Management'),
-                  subtitle: Text('Invite Code: ${group.inviteCode}'),
-                  trailing: const Icon(Icons.copy),
+                  subtitle:
+                      Text('${group.name} · Invite Code: ${group.inviteCode}'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                   onTap: () {
-                    // Copy to clipboard logic would go here
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                          content:
-                              Text('Copied invite code: ${group.inviteCode}')),
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SpaceManagementScreen(),
+                      ),
+                    );
+                  },
+                ),
+                const Divider(),
+              ] else ...[
+                ListTile(
+                  leading: const Icon(Icons.group_outlined),
+                  title: const Text('Space Management'),
+                  subtitle: const Text(
+                      'Create a space or join one with an invite code'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SpaceManagementScreen(),
+                      ),
                     );
                   },
                 ),
