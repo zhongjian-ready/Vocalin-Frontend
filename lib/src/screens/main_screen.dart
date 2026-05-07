@@ -12,6 +12,11 @@ class MainScreen extends StatefulWidget {
 
   final String initialRoute;
 
+  static void switchToRoute(BuildContext context, String route) {
+    final state = context.findAncestorStateOfType<_MainScreenState>();
+    state?._setCurrentRoute(route);
+  }
+
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
@@ -28,6 +33,17 @@ class _MainScreenState extends State<MainScreen> {
   int _indexForRoute(String route) {
     return appDestinations
         .indexWhere((destination) => destination.route == route);
+  }
+
+  void _setCurrentRoute(String route) {
+    final nextIndex = _indexForRoute(route);
+    if (nextIndex < 0 || nextIndex == _currentIndex) {
+      return;
+    }
+
+    setState(() {
+      _currentIndex = nextIndex;
+    });
   }
 
   @override
@@ -59,9 +75,7 @@ class _MainScreenState extends State<MainScreen> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
+          _setCurrentRoute(appDestinations[index].route);
         },
         items: [
           for (final destination in appDestinations)
@@ -139,14 +153,6 @@ class _InboxSheet extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Open an item to jump to Space Management and handle it.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF7D6B5D),
-                    height: 1.4,
-                  ),
-                ),
                 const SizedBox(height: 16),
                 Flexible(
                   child: ListView.separated(
@@ -172,7 +178,12 @@ class _InboxSheet extends StatelessWidget {
                             ),
                           ),
                           title: Text(item.title),
-                          subtitle: Text(item.description),
+                          titleTextStyle: theme.textTheme.titleMedium?.copyWith(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: const Color(0xFF2E2520),
+                            height: 1.3,
+                          ),
                           trailing: const Icon(Icons.chevron_right_rounded),
                           onTap: () => onOpenItem(item),
                         ),

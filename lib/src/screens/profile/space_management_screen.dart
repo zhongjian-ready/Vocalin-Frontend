@@ -9,7 +9,9 @@ import '../../models/user.dart';
 import '../../services/data_service.dart';
 
 class SpaceManagementScreen extends StatefulWidget {
-  const SpaceManagementScreen({super.key});
+  const SpaceManagementScreen({super.key, this.showAppBar = true});
+
+  final bool showAppBar;
 
   @override
   State<SpaceManagementScreen> createState() => _SpaceManagementScreenState();
@@ -68,9 +70,11 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Space Management'),
-      ),
+      appBar: widget.showAppBar
+          ? AppBar(
+              title: const Text('Space Management'),
+            )
+          : null,
       body: Consumer<DataService>(
         builder: (context, dataService, child) {
           _showErrorMessageIfNeeded(context, dataService);
@@ -114,7 +118,7 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
               ),
             ),
             child: SafeArea(
-              top: false,
+              top: !widget.showAppBar,
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
                 children: [
