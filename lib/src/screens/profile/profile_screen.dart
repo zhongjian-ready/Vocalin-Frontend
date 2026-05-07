@@ -11,7 +11,6 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
       body: Consumer<DataService>(
         builder: (context, dataService, child) {
           final user = dataService.currentUser;
@@ -21,15 +20,70 @@ class ProfileScreen extends StatelessWidget {
 
           return ListView(
             children: [
-              UserAccountsDrawerHeader(
-                accountName: Text(user.name),
-                accountEmail: Text('Status: ${user.currentStatus ?? "None"}'),
-                currentAccountPicture: CircleAvatar(
-                  backgroundColor: Colors.white,
-                  child: Text(user.name[0].toUpperCase(),
-                      style: const TextStyle(fontSize: 24)),
+              Container(
+                margin: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(28),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFF8FA3), Color(0xFFF4C2F0)],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x26000000),
+                      blurRadius: 16,
+                      offset: Offset(0, 8),
+                    ),
+                  ],
                 ),
-                decoration: const BoxDecoration(color: Colors.pinkAccent),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 42,
+                      backgroundColor: Colors.white,
+                      child: Text(
+                        user.name[0].toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 24,
+                          color: Color(0xFF7A4A35),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            user.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 30,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Status: ${user.currentStatus ?? "None"}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
               ListTile(
                 leading: const Icon(Icons.link),

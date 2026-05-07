@@ -10,6 +10,9 @@ class Group {
   final String? pinnedMessage;
   final DateTime? timerStartDate;
   final String? timerTitle;
+  final bool pendingOwnershipTransfer;
+  final int? pendingOwnershipTransferRequestId;
+  final int? pendingOwnerId;
 
   Group({
     required this.id,
@@ -21,6 +24,9 @@ class Group {
     this.pinnedMessage,
     this.timerStartDate,
     this.timerTitle,
+    this.pendingOwnershipTransfer = false,
+    this.pendingOwnershipTransferRequestId,
+    this.pendingOwnerId,
   });
 
   factory Group.fromJson(Map<String, dynamic> json) {
@@ -39,6 +45,13 @@ class Group {
           ? DateTime.tryParse(json['timer_start_date'] as String)
           : null,
       timerTitle: json['timer_title'] as String?,
+      pendingOwnershipTransfer:
+          json['pending_ownership_transfer'] as bool? ?? false,
+      pendingOwnershipTransferRequestId:
+          json['pending_ownership_transfer_request_id'] as int?,
+      pendingOwnerId: (json['pending_ownership_transfer_to_user_id'] ??
+          json['pending_owner_id'] ??
+          json['target_owner_id']) as int?,
     );
   }
 
@@ -47,4 +60,5 @@ class Group {
   String? get topMessage => pinnedMessage;
   bool isOwnedBy(int userId) => creatorId == userId || myRole == 'owner';
   bool get canManageMembers => myRole == 'owner' || myRole == 'admin';
+  bool get isOwnershipTransferPending => pendingOwnershipTransfer;
 }

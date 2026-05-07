@@ -3,8 +3,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../models/group.dart';
+import '../models/group_action_result.dart';
 import '../models/group_list_item.dart';
 import '../models/post.dart';
+import '../models/space_inbox_item.dart';
 import '../models/user.dart';
 import '../models/wish.dart';
 
@@ -434,10 +436,10 @@ class ApiService {
     return Group.fromJson(_extractResponseDataMap(response.data));
   }
 
-  Future<Group> joinGroup(String inviteCode) async {
+  Future<GroupActionResult> joinGroup(String inviteCode) async {
     final response =
         await _dio.post('/groups/join', data: {'invite_code': inviteCode});
-    return Group.fromJson(_extractResponseDataMap(response.data));
+    return GroupActionResult.fromResponse(response.data);
   }
 
   Future<void> switchCurrentGroup(int groupId) async {
@@ -455,14 +457,15 @@ class ApiService {
     await _dio.delete('/groups/$groupId/members/$targetUserId');
   }
 
-  Future<void> transferGroupOwnership({
+  Future<GroupActionResult> transferGroupOwnership({
     required int groupId,
     required int targetUserId,
   }) async {
-    await _dio.put(
+    final response = await _dio.put(
       '/groups/$groupId/owner',
       data: {'target_user_id': targetUserId},
     );
+    return GroupActionResult.fromResponse(response.data);
   }
 
   Future<void> dissolveGroup(int groupId) async {
@@ -476,6 +479,34 @@ class ApiService {
 
   Future<void> updatePinnedMessage(String content) async {
     await _dio.put('/home/pinned', data: {'content': content});
+  }
+
+  Future<List<SpaceInboxItem>> getHomeMessages() async {
+    final response = await _dio.get('/home/messages');
+    return _extractResponseDataList(response.data)
+        .map((item) => SpaceInboxItem.fromJson(_asMap(item)))
+        .toList();
+  }
+
+  Future<void> reviewGroupJoinRequest({
+    required int groupId,
+    required int requestId,
+    required String action,
+  }) async {
+    await _dio.post(
+      '/groups/$groupId/join-requests/$requestId/review',
+      data: {'action': action},
+    );
+  }
+
+  Future<void> reviewOwnershipTransfer({
+    required int groupId,
+    required String action,
+  }) async {
+    await _dio.post(
+      '/groups/$groupId/owner/review',
+      data: {'action': action},
+    );
   }
 
   // Records

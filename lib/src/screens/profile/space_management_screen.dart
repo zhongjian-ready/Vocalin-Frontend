@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/group.dart';
 import '../../models/group_list_item.dart';
+import '../../models/space_inbox_item.dart';
 import '../../models/user.dart';
 import '../../services/data_service.dart';
 
@@ -18,12 +19,50 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
   final _createController = TextEditingController();
   final _inviteCodeController = TextEditingController();
   bool _isSubmitting = false;
+  String? _lastHandledErrorMessage;
 
   @override
   void dispose() {
     _createController.dispose();
     _inviteCodeController.dispose();
     super.dispose();
+  }
+
+  void _showErrorMessageIfNeeded(
+    BuildContext context,
+    DataService dataService,
+  ) {
+    final errorMessage = dataService.errorMessage;
+    if (errorMessage == null) {
+      _lastHandledErrorMessage = null;
+      return;
+    }
+
+    if (errorMessage == _lastHandledErrorMessage) {
+      return;
+    }
+
+    _lastHandledErrorMessage = errorMessage;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      final currentDataService = context.read<DataService>();
+      if (currentDataService.errorMessage != errorMessage) {
+        return;
+      }
+
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFFD85A3D),
+          content: Text(errorMessage),
+        ),
+      );
+      currentDataService.clearErrorMessage();
+    });
   }
 
   @override
@@ -34,19 +73,37 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
       ),
       body: Consumer<DataService>(
         builder: (context, dataService, child) {
+          _showErrorMessageIfNeeded(context, dataService);
+
           final theme = Theme.of(context);
           final group = dataService.currentGroup;
           final currentUser = dataService.currentUser;
           final currentUserId = currentUser?.id;
           final joinedGroups = dataService.joinedGroups;
+          final pendingMessages = group == null
+              ? const <SpaceInboxItem>[]
+              : dataService.spaceInboxItems
+                  .where((item) => item.groupId == group.id)
+                  .toList();
           final hasOtherGroups =
               group != null && joinedGroups.any((item) => item.id != group.id);
           final canManageOwnership = group != null &&
               currentUser != null &&
               group.isOwnedBy(currentUser.id);
+          final canApproveJoinRequests = group?.canManageMembers == true;
+          final joinRequestMessages = canApproveJoinRequests
+              ? pendingMessages.where((item) => item.isJoinRequest).toList()
+              : const <SpaceInboxItem>[];
+          final transferApprovalMessage = pendingMessages
+              .where((item) =>
+                  item.isOwnershipTransfer &&
+                  item.targetUserId == currentUserId)
+              .firstOrNull;
           final canKickMembers = group?.myRole == 'owner';
           final shouldSelectSuccessorBeforeLeaving =
               canManageOwnership && group.members.length > 1;
+          final hasPendingApprovals =
+              joinRequestMessages.isNotEmpty || transferApprovalMessage != null;
 
           return Container(
             decoration: const BoxDecoration(
@@ -63,10 +120,6 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
                 children: [
                   _HeaderCard(group: group),
                   const SizedBox(height: 16),
-                  if (dataService.errorMessage != null) ...[
-                    _ErrorBanner(message: dataService.errorMessage!),
-                    const SizedBox(height: 16),
-                  ],
                   if (group == null) ...[
                     _ActionCard(
                       icon: Icons.add_home_rounded,
@@ -197,6 +250,83 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    if (hasPendingApprovals) ...[
+                      _ActionCard(
+                        icon: Icons.mark_email_unread_rounded,
+                        title: 'Pending approvals',
+                        description:
+                            'Review join requests and ownership transfers from here.',
+                        child: Column(
+                          children: [
+                            if (transferApprovalMessage != null) ...[
+                              _PendingApprovalTile(
+                                title: 'Ownership transfer',
+                                description:
+                                    '${transferApprovalMessage.requesterNickname ?? 'The current owner'} wants to transfer ${group.name} to you.',
+                                actions: [
+                                  OutlinedButton(
+                                    onPressed: _isSubmitting
+                                        ? null
+                                        : () => _rejectOwnershipTransfer(
+                                              context,
+                                              group,
+                                              transferApprovalMessage,
+                                            ),
+                                    child: const Text('Reject'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: _isSubmitting
+                                        ? null
+                                        : () => _acceptOwnershipTransfer(
+                                              context,
+                                              group,
+                                            ),
+                                    child: const Text('Approve'),
+                                  ),
+                                ],
+                              ),
+                              if (joinRequestMessages.isNotEmpty)
+                                const SizedBox(height: 12),
+                            ],
+                            for (var index = 0;
+                                index < joinRequestMessages.length;
+                                index++) ...[
+                              _PendingApprovalTile(
+                                title: joinRequestMessages[index]
+                                        .requesterNickname ??
+                                    'New member',
+                                description: 'Requested to join ${group.name}.',
+                                actions: [
+                                  OutlinedButton(
+                                    onPressed: _isSubmitting
+                                        ? null
+                                        : () => _rejectJoinRequest(
+                                              context,
+                                              group,
+                                              joinRequestMessages[index],
+                                            ),
+                                    child: const Text('Reject'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: _isSubmitting
+                                        ? null
+                                        : () => _approveJoinRequest(
+                                              context,
+                                              group,
+                                              joinRequestMessages[index],
+                                            ),
+                                    child: const Text('Approve'),
+                                  ),
+                                ],
+                              ),
+                              if (index != joinRequestMessages.length - 1)
+                                const SizedBox(height: 12),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     _ActionCard(
                       icon: Icons.swap_horiz_rounded,
                       title: 'Switch space',
@@ -255,29 +385,19 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
                               ),
                               title: Text(member.name),
                               subtitle: Text(
-                                  member.currentStatus?.isNotEmpty == true
-                                      ? member.currentStatus!
-                                      : 'No status yet'),
-                              trailing: canKickMembers &&
-                                      currentUserId != null &&
-                                      member.role == 'member' &&
-                                      member.id != currentUserId
-                                  ? TextButton.icon(
-                                      onPressed: _isSubmitting
-                                          ? null
-                                          : () => _removeMember(
-                                                context,
-                                                group,
-                                                member,
-                                              ),
-                                      icon: const Icon(Icons.person_remove),
-                                      label: const Text('Kick'),
-                                      style: TextButton.styleFrom(
-                                        foregroundColor:
-                                            const Color(0xFFD85A3D),
-                                      ),
-                                    )
-                                  : null,
+                                _memberSubtitle(
+                                  group: group,
+                                  member: member,
+                                  currentUserId: currentUserId,
+                                ),
+                              ),
+                              trailing: _buildMemberAction(
+                                context,
+                                group: group,
+                                member: member,
+                                currentUserId: currentUserId,
+                                canKickMembers: canKickMembers,
+                              ),
                             ),
                         ],
                       ),
@@ -309,12 +429,17 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
                             _DangerActionTile(
                               icon: Icons.workspace_premium_rounded,
                               title: 'Transfer ownership',
-                              description: group.members.length > 1
-                                  ? 'Hand this space over to another member before you step back.'
-                                  : 'You need at least one other member in the space before transferring ownership.',
-                              buttonLabel: 'Transfer',
+                              description: group.isOwnershipTransferPending
+                                  ? 'A transfer request is in progress. The target member needs to approve it before roles change.'
+                                  : group.members.length > 1
+                                      ? 'Hand this space over to another member before you step back.'
+                                      : 'You need at least one other member in the space before transferring ownership.',
+                              buttonLabel: group.isOwnershipTransferPending
+                                  ? 'Transferring'
+                                  : 'Transfer',
                               isDestructive: false,
                               onPressed: _isSubmitting ||
+                                      group.isOwnershipTransferPending ||
                                       group.members.length <= 1
                                   ? null
                                   : () =>
@@ -399,7 +524,7 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
       _isSubmitting = true;
     });
 
-    await dataService
+    final result = await dataService
         .joinGroup(_inviteCodeController.text.trim().toUpperCase());
 
     if (!mounted) {
@@ -409,6 +534,19 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
     setState(() {
       _isSubmitting = false;
     });
+
+    if (dataService.errorMessage == null && result.isPendingApproval) {
+      _inviteCodeController.clear();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            result.message ??
+                'Join request sent. Stay in your current space until it is approved.',
+          ),
+        ),
+      );
+      return true;
+    }
 
     if (dataService.currentGroup != null &&
         dataService.currentGroup!.id != beforeGroupId) {
@@ -457,6 +595,17 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
   Future<bool> _switchGroup(BuildContext context, GroupListItem item) async {
     final dataService = context.read<DataService>();
     final messenger = ScaffoldMessenger.of(context);
+
+    if (item.isPendingApproval) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '${item.name} is still waiting for approval. You cannot switch to it yet.',
+          ),
+        ),
+      );
+      return false;
+    }
 
     setState(() {
       _isSubmitting = true;
@@ -593,7 +742,7 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
       _isSubmitting = true;
     });
 
-    await dataService.transferGroupOwnership(
+    final result = await dataService.transferGroupOwnership(
       groupId: group.id,
       targetUserId: target.id,
     );
@@ -602,7 +751,7 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
       return;
     }
 
-    if (dataService.errorMessage == null) {
+    if (dataService.errorMessage == null && !result.isPendingApproval) {
       await dataService.leaveGroup(group.id);
     }
 
@@ -614,7 +763,16 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
       _isSubmitting = false;
     });
 
-    if (dataService.errorMessage == null) {
+    if (dataService.errorMessage == null && result.isPendingApproval) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            result.message ??
+                'Transfer request sent to ${target.name}. You can leave after approval.',
+          ),
+        ),
+      );
+    } else if (dataService.errorMessage == null) {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
@@ -656,7 +814,7 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
       _isSubmitting = true;
     });
 
-    await dataService.transferGroupOwnership(
+    final result = await dataService.transferGroupOwnership(
       groupId: group.id,
       targetUserId: target.id,
     );
@@ -669,7 +827,16 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
       _isSubmitting = false;
     });
 
-    if (dataService.errorMessage == null) {
+    if (dataService.errorMessage == null && result.isPendingApproval) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            result.message ??
+                'Transfer request sent to ${target.name}. Waiting for approval.',
+          ),
+        ),
+      );
+    } else if (dataService.errorMessage == null) {
       messenger.showSnackBar(
         SnackBar(content: Text('Ownership transferred to ${target.name}.')),
       );
@@ -880,6 +1047,236 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
       _ => role[0].toUpperCase() + role.substring(1),
     };
   }
+
+  String _memberSubtitle({
+    required Group group,
+    required User member,
+    required int? currentUserId,
+  }) {
+    if (group.isOwnershipTransferPending && group.pendingOwnerId == member.id) {
+      return member.id == currentUserId
+          ? 'Ownership transfer pending your approval'
+          : 'Ownership transfer pending acceptance';
+    }
+
+    return member.currentStatus?.isNotEmpty == true
+        ? member.currentStatus!
+        : 'No status yet';
+  }
+
+  Widget? _buildMemberAction(
+    BuildContext context, {
+    required Group group,
+    required User member,
+    required int? currentUserId,
+    required bool canKickMembers,
+  }) {
+    if (canKickMembers &&
+        currentUserId != null &&
+        member.role == 'member' &&
+        member.id != currentUserId) {
+      return TextButton.icon(
+        onPressed: _isSubmitting
+            ? null
+            : () => _removeMember(
+                  context,
+                  group,
+                  member,
+                ),
+        icon: const Icon(Icons.person_remove),
+        label: const Text('Kick'),
+        style: TextButton.styleFrom(
+          foregroundColor: const Color(0xFFD85A3D),
+        ),
+      );
+    }
+
+    return null;
+  }
+
+  Future<void> _approveJoinRequest(
+    BuildContext context,
+    Group group,
+    SpaceInboxItem message,
+  ) async {
+    final confirmed = await _showConfirmationDialog(
+      context,
+      title: 'Approve join request?',
+      content:
+          '${message.requesterNickname ?? 'This member'} will join ${group.name} after approval.',
+      confirmLabel: 'Approve',
+      isDestructive: false,
+    );
+
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+
+    final dataService = context.read<DataService>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    await dataService.approveJoinRequest(
+      groupId: group.id,
+      requestId: message.id,
+    );
+
+    if (!context.mounted) {
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = false;
+    });
+
+    if (dataService.errorMessage == null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '${message.requesterNickname ?? 'The request'} has been approved.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _rejectJoinRequest(
+    BuildContext context,
+    Group group,
+    SpaceInboxItem message,
+  ) async {
+    final confirmed = await _showConfirmationDialog(
+      context,
+      title: 'Reject join request?',
+      content:
+          '${message.requesterNickname ?? 'This member'} will stay outside ${group.name}.',
+      confirmLabel: 'Reject',
+      isDestructive: true,
+    );
+
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+
+    final dataService = context.read<DataService>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    await dataService.rejectJoinRequest(
+      groupId: group.id,
+      requestId: message.id,
+    );
+
+    if (!context.mounted) {
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = false;
+    });
+
+    if (dataService.errorMessage == null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '${message.requesterNickname ?? 'The request'} has been rejected.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _acceptOwnershipTransfer(
+    BuildContext context,
+    Group group,
+  ) async {
+    final confirmed = await _showConfirmationDialog(
+      context,
+      title: 'Accept ownership transfer?',
+      content: 'After approval, you will become the owner of ${group.name}.',
+      confirmLabel: 'Approve',
+      isDestructive: false,
+    );
+
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+
+    final dataService = context.read<DataService>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    await dataService.approveOwnershipTransfer(groupId: group.id);
+
+    if (!context.mounted) {
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = false;
+    });
+
+    if (dataService.errorMessage == null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('You are now the owner of ${group.name}.')),
+      );
+    }
+  }
+
+  Future<void> _rejectOwnershipTransfer(
+    BuildContext context,
+    Group group,
+    SpaceInboxItem message,
+  ) async {
+    final confirmed = await _showConfirmationDialog(
+      context,
+      title: 'Reject ownership transfer?',
+      content:
+          'Rejecting this request keeps ${message.requesterNickname ?? 'the current owner'} as the owner of ${group.name}.',
+      confirmLabel: 'Reject',
+      isDestructive: true,
+    );
+
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+
+    final dataService = context.read<DataService>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    await dataService.rejectOwnershipTransfer(groupId: group.id);
+
+    if (!context.mounted) {
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = false;
+    });
+
+    if (dataService.errorMessage == null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ownership transfer for ${group.name} has been rejected.',
+          ),
+        ),
+      );
+    }
+  }
 }
 
 class _HeaderCard extends StatelessWidget {
@@ -1067,36 +1464,50 @@ class _InfoTile extends StatelessWidget {
   }
 }
 
-class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.message});
+class _PendingApprovalTile extends StatelessWidget {
+  const _PendingApprovalTile({
+    required this.title,
+    required this.description,
+    required this.actions,
+  });
 
-  final String message;
+  final String title;
+  final String description;
+  final List<Widget> actions;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFEFEA),
+        color: const Color(0xFFFFF7F0),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFFFC5B3)),
+        border: Border.all(color: const Color(0xFFF1D8C2)),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 2),
-            child: Icon(Icons.error_outline, color: Color(0xFFD85A3D)),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(
-                color: Color(0xFFB4432D),
-                height: 1.4,
-              ),
+          Text(
+            title,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            description,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF7D6B5D),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: actions,
           ),
         ],
       ),
@@ -1149,7 +1560,9 @@ class _GroupListTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${item.memberCount} members · Invite ${item.inviteCode}',
+                  item.isPendingApproval
+                      ? 'Approval required before you can switch to this group.'
+                      : '${item.memberCount} members · Invite ${item.inviteCode}',
                   style: const TextStyle(
                     color: Color(0xFF7D6B5D),
                     height: 1.3,
@@ -1420,8 +1833,10 @@ class _SpaceSwitcherSheetState extends State<_SpaceSwitcherSheet> {
         for (final item in switchableGroups) ...[
           _GroupListTile(
             item: item,
-            actionLabel: 'Switch',
-            onPressed: _isSubmitting ? null : () => _handleSwitch(item),
+            actionLabel: item.isPendingApproval ? 'Pending' : 'Switch',
+            onPressed: _isSubmitting || item.isPendingApproval
+                ? null
+                : () => _handleSwitch(item),
           ),
           const SizedBox(height: 10),
         ],
@@ -1444,7 +1859,7 @@ class _SpaceSwitcherSheetState extends State<_SpaceSwitcherSheet> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Enter an invite code. After joining successfully, you will switch there immediately.',
+                'Enter an invite code. Join requests stay pending until an owner or admin approves them.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: const Color(0xFF7D6B5D),
                       height: 1.4,

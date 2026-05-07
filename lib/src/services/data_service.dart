@@ -4,8 +4,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/group.dart';
+import '../models/group_action_result.dart';
 import '../models/group_list_item.dart';
 import '../models/post.dart';
+import '../models/space_inbox_item.dart';
 import '../models/user.dart';
 import '../models/wish.dart';
 import 'api_service.dart';
@@ -19,6 +21,7 @@ class DataService extends ChangeNotifier {
   User? _currentUser;
   Group? _currentGroup;
   List<GroupListItem> _joinedGroups = [];
+  List<SpaceInboxItem> _spaceInboxItems = [];
   List<Post> _posts = [];
   List<Wish> _wishes = [];
   bool _isLoading = false;
@@ -27,6 +30,7 @@ class DataService extends ChangeNotifier {
   User? get currentUser => _currentUser;
   Group? get currentGroup => _currentGroup;
   List<GroupListItem> get joinedGroups => _joinedGroups;
+  List<SpaceInboxItem> get spaceInboxItems => _spaceInboxItems;
   List<Post> get posts => _posts;
   List<Wish> get wishes => _wishes;
   bool get isLoading => _isLoading;
@@ -34,6 +38,15 @@ class DataService extends ChangeNotifier {
 
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
+
+  void clearErrorMessage() {
+    if (_errorMessage == null) {
+      return;
+    }
+
+    _errorMessage = null;
+    notifyListeners();
+  }
 
   void syncAuthState(User? user) {
     final userChanged = !_isSameUser(_currentUser, user);
@@ -53,6 +66,7 @@ class DataService extends ChangeNotifier {
     if (userChanged) {
       _currentGroup = null;
       _joinedGroups = [];
+      _spaceInboxItems = [];
       _posts = [];
       _wishes = [];
       _hasLoadedRemoteData = false;
@@ -72,7 +86,13 @@ class DataService extends ChangeNotifier {
 
     try {
       final groupListData = await _api.getMyGroups();
-      _joinedGroups = groupListData.groups;
+      _joinedGroups = [
+        ...groupListData.groups,
+        ...groupListData.pendingRequests
+      ];
+      _spaceInboxItems = (await _api.getHomeMessages())
+          .where((item) => item.isPending)
+          .toList();
 
       final group = await _loadGroupOrNull();
       if (group == null) {
@@ -124,6 +144,8 @@ class DataService extends ChangeNotifier {
         currentStatus: status,
         groupId: _currentUser!.groupId,
         role: _currentUser!.role,
+        membershipStatus: _currentUser!.membershipStatus,
+        ownershipTransferStatus: _currentUser!.ownershipTransferStatus,
       );
 
       if (_currentGroup != null) {
@@ -145,6 +167,10 @@ class DataService extends ChangeNotifier {
           pinnedMessage: _currentGroup!.pinnedMessage,
           timerStartDate: _currentGroup!.timerStartDate,
           timerTitle: _currentGroup!.timerTitle,
+          pendingOwnershipTransfer: _currentGroup!.pendingOwnershipTransfer,
+          pendingOwnershipTransferRequestId:
+              _currentGroup!.pendingOwnershipTransferRequestId,
+          pendingOwnerId: _currentGroup!.pendingOwnerId,
         );
       }
 
@@ -230,6 +256,10 @@ class DataService extends ChangeNotifier {
         pinnedMessage: message,
         timerStartDate: _currentGroup!.timerStartDate,
         timerTitle: _currentGroup!.timerTitle,
+        pendingOwnershipTransfer: _currentGroup!.pendingOwnershipTransfer,
+        pendingOwnershipTransferRequestId:
+            _currentGroup!.pendingOwnershipTransferRequestId,
+        pendingOwnerId: _currentGroup!.pendingOwnerId,
       );
       notifyListeners();
     });
@@ -252,21 +282,42 @@ class DataService extends ChangeNotifier {
     });
   }
 
-  Future<void> joinGroup(String inviteCode) async {
+  Future<GroupActionResult> joinGroup(String inviteCode) async {
     final trimmedInviteCode = inviteCode.trim();
     if (trimmedInviteCode.isEmpty) {
-      return;
+      return const GroupActionResult(status: GroupActionStatus.completed);
     }
 
+    var result = const GroupActionResult(status: GroupActionStatus.completed);
+
     await _runMutation(() async {
-      final group = await _api.joinGroup(trimmedInviteCode);
-      _applyGroup(group);
-      _posts = [];
-      _wishes = [];
-      _hasLoadedRemoteData = true;
-      notifyListeners();
+      final response = await _api.joinGroup(trimmedInviteCode);
+      result = response;
+
+      if (!response.isPendingApproval && response.group != null) {
+        _applyGroup(response.group!);
+        _posts = [];
+        _wishes = [];
+        _hasLoadedRemoteData = true;
+        notifyListeners();
+      }
+
       await refreshData();
+
+      final pendingRequest = _joinedGroups.where((item) {
+        return item.isPendingApproval &&
+            item.inviteCode.toUpperCase() == trimmedInviteCode.toUpperCase();
+      }).firstOrNull;
+      if (pendingRequest != null) {
+        result = GroupActionResult(
+          status: GroupActionStatus.pendingApproval,
+          groupListItem: pendingRequest,
+          message: response.message ?? '已发起申请',
+        );
+      }
     });
+
+    return result;
   }
 
   Future<void> switchCurrentGroup(int groupId) async {
@@ -296,14 +347,76 @@ class DataService extends ChangeNotifier {
     });
   }
 
-  Future<void> transferGroupOwnership({
+  Future<GroupActionResult> transferGroupOwnership({
     required int groupId,
     required int targetUserId,
   }) async {
+    var result = const GroupActionResult(status: GroupActionStatus.completed);
+
     await _runMutation(() async {
-      await _api.transferGroupOwnership(
+      final response = await _api.transferGroupOwnership(
         groupId: groupId,
         targetUserId: targetUserId,
+      );
+      await refreshData();
+
+      if (_currentGroup?.id == groupId &&
+          _currentGroup?.isOwnershipTransferPending == true) {
+        result = GroupActionResult(
+          status: GroupActionStatus.pendingApproval,
+          message: response.message ?? '已发起移交',
+        );
+      } else {
+        result = response;
+      }
+    });
+
+    return result;
+  }
+
+  Future<void> approveJoinRequest({
+    required int groupId,
+    required int requestId,
+  }) async {
+    await _runMutation(() async {
+      await _api.reviewGroupJoinRequest(
+        groupId: groupId,
+        requestId: requestId,
+        action: 'approve',
+      );
+      await refreshData();
+    });
+  }
+
+  Future<void> rejectJoinRequest({
+    required int groupId,
+    required int requestId,
+  }) async {
+    await _runMutation(() async {
+      await _api.reviewGroupJoinRequest(
+        groupId: groupId,
+        requestId: requestId,
+        action: 'reject',
+      );
+      await refreshData();
+    });
+  }
+
+  Future<void> approveOwnershipTransfer({required int groupId}) async {
+    await _runMutation(() async {
+      await _api.reviewOwnershipTransfer(
+        groupId: groupId,
+        action: 'approve',
+      );
+      await refreshData();
+    });
+  }
+
+  Future<void> rejectOwnershipTransfer({required int groupId}) async {
+    await _runMutation(() async {
+      await _api.reviewOwnershipTransfer(
+        groupId: groupId,
+        action: 'reject',
       );
       await refreshData();
     });
@@ -351,6 +464,7 @@ class DataService extends ChangeNotifier {
   void _resetData() {
     _currentGroup = null;
     _joinedGroups = [];
+    _spaceInboxItems = [];
     _posts = [];
     _wishes = [];
     _isLoading = false;
