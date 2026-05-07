@@ -5,7 +5,6 @@ import '../../services/data_service.dart';
 import '../../widgets/blackboard_card.dart';
 import '../../widgets/companion_timer_card.dart';
 import '../../widgets/recent_activity_card.dart';
-import '../../widgets/status_bubbles.dart';
 import '../profile/space_management_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -53,8 +52,10 @@ class HomeScreen extends StatelessWidget {
           return SingleChildScrollView(
             child: Column(
               children: [
-                CompanionTimerCard(startDate: group.createdAt),
-                StatusBubbles(users: group.members),
+                CompanionTimerCard(
+                  startDate: group.createdAt,
+                  onTap: () => _showMembersDialog(context, group.members),
+                ),
                 if (group.topMessage != null)
                   BlackboardCard(
                     message: group.topMessage!,
@@ -97,6 +98,120 @@ class HomeScreen extends StatelessWidget {
             child: const Text('Save'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showMembersDialog(BuildContext context, List<dynamic> members) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420, maxHeight: 520),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Our People',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Tap the card anytime to see everyone in your space.',
+                  style: TextStyle(
+                    color: Color(0xFF7A6658),
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: members.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final member = members[index];
+                      final status = member.currentStatus as String?;
+
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF8F2),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: const Color(0xFFF1DDD1)),
+                        ),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 24,
+                              backgroundColor: const Color(0xFFFFDCC8),
+                              backgroundImage: member.avatarUrl != null
+                                  ? NetworkImage(member.avatarUrl! as String)
+                                  : null,
+                              child: member.avatarUrl == null
+                                  ? Text(
+                                      member.name[0].toUpperCase(),
+                                      style: const TextStyle(
+                                        color: Color(0xFFA85D38),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    member.name,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    status == null || status.isEmpty
+                                        ? 'No current status'
+                                        : status,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: status == null || status.isEmpty
+                                          ? const Color(0xFF9C8B81)
+                                          : const Color(0xFF7A6658),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
