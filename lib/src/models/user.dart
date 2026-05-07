@@ -4,6 +4,7 @@ class User {
   final String? avatarUrl;
   final String? currentStatus;
   final int? groupId;
+  final String? role;
 
   User({
     required this.id,
@@ -11,6 +12,7 @@ class User {
     this.avatarUrl,
     this.currentStatus,
     this.groupId,
+    this.role,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -19,7 +21,9 @@ class User {
       nickname: json['nickname'] as String,
       avatarUrl: json['avatar_url'] as String?,
       currentStatus: json['current_status'] as String?,
-      groupId: (json['group_id'] ?? json['GroupId']) as int?,
+      groupId: (json['group_id'] ?? json['current_group_id'] ?? json['GroupId'])
+          as int?,
+      role: json['role'] as String?,
     );
   }
 
@@ -30,9 +34,11 @@ class User {
       'avatar_url': avatarUrl,
       'current_status': currentStatus,
       'group_id': groupId,
+      'role': role,
     };
   }
-  
+
   // Helper for UI compatibility
   String get name => nickname;
+  bool get canManageMembers => role == 'owner' || role == 'admin';
 }

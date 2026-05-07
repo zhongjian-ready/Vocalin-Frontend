@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/group.dart';
+import '../models/group_list_item.dart';
 import '../models/post.dart';
 import '../models/user.dart';
 import '../models/wish.dart';
@@ -17,6 +18,7 @@ class DataService extends ChangeNotifier {
 
   User? _currentUser;
   Group? _currentGroup;
+  List<GroupListItem> _joinedGroups = [];
   List<Post> _posts = [];
   List<Wish> _wishes = [];
   bool _isLoading = false;
@@ -24,6 +26,7 @@ class DataService extends ChangeNotifier {
 
   User? get currentUser => _currentUser;
   Group? get currentGroup => _currentGroup;
+  List<GroupListItem> get joinedGroups => _joinedGroups;
   List<Post> get posts => _posts;
   List<Wish> get wishes => _wishes;
   bool get isLoading => _isLoading;
@@ -49,6 +52,7 @@ class DataService extends ChangeNotifier {
 
     if (userChanged) {
       _currentGroup = null;
+      _joinedGroups = [];
       _posts = [];
       _wishes = [];
       _hasLoadedRemoteData = false;
@@ -67,6 +71,9 @@ class DataService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final groupListData = await _api.getMyGroups();
+      _joinedGroups = groupListData.groups;
+
       final group = await _loadGroupOrNull();
       if (group == null) {
         _currentGroup = null;
@@ -116,6 +123,7 @@ class DataService extends ChangeNotifier {
         avatarUrl: _currentUser!.avatarUrl,
         currentStatus: status,
         groupId: _currentUser!.groupId,
+        role: _currentUser!.role,
       );
 
       if (_currentGroup != null) {
@@ -132,6 +140,8 @@ class DataService extends ChangeNotifier {
           name: _currentGroup!.name,
           inviteCode: _currentGroup!.inviteCode,
           members: updatedMembers,
+          creatorId: _currentGroup!.creatorId,
+          myRole: _currentGroup!.myRole,
           pinnedMessage: _currentGroup!.pinnedMessage,
           timerStartDate: _currentGroup!.timerStartDate,
           timerTitle: _currentGroup!.timerTitle,
@@ -180,14 +190,24 @@ class DataService extends ChangeNotifier {
     });
   }
 
-  Future<void> addWish(String title) async {
+  Future<void> addWish(
+    String title, {
+    WishPriority priority = WishPriority.medium,
+  }) async {
     final trimmedTitle = title.trim();
     if (trimmedTitle.isEmpty) {
       return;
     }
 
     await _runMutation(() async {
-      await _api.addWish(trimmedTitle);
+      await _api.addWish(trimmedTitle, priority: priority.apiValue);
+      await _reloadWishlist();
+    });
+  }
+
+  Future<void> updateWishPriority(int wishId, WishPriority priority) async {
+    await _runMutation(() async {
+      await _api.updateWishPriority(wishId, priority.apiValue);
       await _reloadWishlist();
     });
   }
@@ -205,6 +225,8 @@ class DataService extends ChangeNotifier {
         name: _currentGroup!.name,
         inviteCode: _currentGroup!.inviteCode,
         members: _currentGroup!.members,
+        creatorId: _currentGroup!.creatorId,
+        myRole: _currentGroup!.myRole,
         pinnedMessage: message,
         timerStartDate: _currentGroup!.timerStartDate,
         timerTitle: _currentGroup!.timerTitle,
@@ -247,6 +269,53 @@ class DataService extends ChangeNotifier {
     });
   }
 
+  Future<void> switchCurrentGroup(int groupId) async {
+    await _runMutation(() async {
+      await _api.switchCurrentGroup(groupId);
+      await refreshData();
+    });
+  }
+
+  Future<void> leaveGroup(int groupId) async {
+    await _runMutation(() async {
+      await _api.leaveGroup(groupId);
+      await refreshData();
+    });
+  }
+
+  Future<void> removeGroupMember({
+    required int groupId,
+    required int targetUserId,
+  }) async {
+    await _runMutation(() async {
+      await _api.removeGroupMember(
+        groupId: groupId,
+        targetUserId: targetUserId,
+      );
+      await refreshData();
+    });
+  }
+
+  Future<void> transferGroupOwnership({
+    required int groupId,
+    required int targetUserId,
+  }) async {
+    await _runMutation(() async {
+      await _api.transferGroupOwnership(
+        groupId: groupId,
+        targetUserId: targetUserId,
+      );
+      await refreshData();
+    });
+  }
+
+  Future<void> dissolveGroup(int groupId) async {
+    await _runMutation(() async {
+      await _api.dissolveGroup(groupId);
+      await refreshData();
+    });
+  }
+
   Future<Group?> _loadGroupOrNull() async {
     try {
       return await _api.getGroup();
@@ -281,6 +350,7 @@ class DataService extends ChangeNotifier {
 
   void _resetData() {
     _currentGroup = null;
+    _joinedGroups = [];
     _posts = [];
     _wishes = [];
     _isLoading = false;

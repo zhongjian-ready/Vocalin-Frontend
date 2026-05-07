@@ -20,7 +20,7 @@ void main() {
       dio.httpClientAdapter = _FakeHttpClientAdapter((options) {
         final requestPath = options.uri.path;
 
-        if (requestPath.endsWith('/groups/me')) {
+        if (requestPath.endsWith('/groups/current')) {
           return _jsonResponse(
             options,
             200,
@@ -141,7 +141,7 @@ void main() {
           );
         }
 
-        if (requestPath.endsWith('/groups/me')) {
+        if (requestPath.endsWith('/groups/current')) {
           groupRequests += 1;
 
           if (groupRequests == 1) {
@@ -169,7 +169,9 @@ void main() {
             );
           }
 
-          throw StateError('Unexpected /groups/me call count: $groupRequests');
+          throw StateError(
+            'Unexpected /groups/current call count: $groupRequests',
+          );
         }
 
         throw StateError(
@@ -215,7 +217,7 @@ void main() {
           );
         }
 
-        if (requestPath.endsWith('/groups/me')) {
+        if (requestPath.endsWith('/groups/current')) {
           groupRequests += 1;
 
           if (groupRequests == 1) {
@@ -243,7 +245,9 @@ void main() {
             );
           }
 
-          throw StateError('Unexpected /groups/me call count: $groupRequests');
+          throw StateError(
+            'Unexpected /groups/current call count: $groupRequests',
+          );
         }
 
         throw StateError(

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import '../models/group.dart';
+import '../models/group_list_item.dart';
 import '../models/post.dart';
 import '../models/user.dart';
 import '../models/wish.dart';
@@ -418,8 +419,13 @@ class ApiService {
   }
 
   // Group
+  Future<GroupListData> getMyGroups() async {
+    final response = await _dio.get('/groups');
+    return GroupListData.fromJson(_extractResponseDataMap(response.data));
+  }
+
   Future<Group> getGroup() async {
-    final response = await _dio.get('/groups/me');
+    final response = await _dio.get('/groups/current');
     return Group.fromJson(_extractResponseDataMap(response.data));
   }
 
@@ -432,6 +438,35 @@ class ApiService {
     final response =
         await _dio.post('/groups/join', data: {'invite_code': inviteCode});
     return Group.fromJson(_extractResponseDataMap(response.data));
+  }
+
+  Future<void> switchCurrentGroup(int groupId) async {
+    await _dio.put('/groups/current', data: {'group_id': groupId});
+  }
+
+  Future<void> leaveGroup(int groupId) async {
+    await _dio.delete('/groups/$groupId/members/me');
+  }
+
+  Future<void> removeGroupMember({
+    required int groupId,
+    required int targetUserId,
+  }) async {
+    await _dio.delete('/groups/$groupId/members/$targetUserId');
+  }
+
+  Future<void> transferGroupOwnership({
+    required int groupId,
+    required int targetUserId,
+  }) async {
+    await _dio.put(
+      '/groups/$groupId/owner',
+      data: {'target_user_id': targetUserId},
+    );
+  }
+
+  Future<void> dissolveGroup(int groupId) async {
+    await _dio.delete('/groups/$groupId');
   }
 
   // Home
@@ -480,8 +515,11 @@ class ApiService {
         .toList();
   }
 
-  Future<void> addWish(String content) async {
-    await _dio.post('/records/wishlist', data: {'content': content});
+  Future<void> addWish(String content, {String? priority}) async {
+    await _dio.post('/records/wishlist', data: {
+      'content': content,
+      if (priority != null) 'priority': priority,
+    });
   }
 
   Future<void> completeWish(int id) async {
@@ -490,6 +528,12 @@ class ApiService {
 
   Future<void> uncompleteWish(int id) async {
     await _dio.put('/records/wishlist/$id/incomplete');
+  }
+
+  Future<void> updateWishPriority(int id, String priority) async {
+    await _dio.put('/records/wishlist/$id/priority', data: {
+      'priority': priority,
+    });
   }
 }
 

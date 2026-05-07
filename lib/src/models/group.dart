@@ -5,6 +5,8 @@ class Group {
   final String name;
   final String inviteCode;
   final List<User> members;
+  final int? creatorId;
+  final String? myRole;
   final String? pinnedMessage;
   final DateTime? timerStartDate;
   final String? timerTitle;
@@ -14,6 +16,8 @@ class Group {
     required this.name,
     required this.inviteCode,
     required this.members,
+    this.creatorId,
+    this.myRole,
     this.pinnedMessage,
     this.timerStartDate,
     this.timerTitle,
@@ -28,6 +32,8 @@ class Group {
               ?.map((e) => User.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
+      creatorId: json['creator_id'] as int?,
+      myRole: json['my_role'] as String?,
       pinnedMessage: json['pinned_message'] as String?,
       timerStartDate: json['timer_start_date'] != null
           ? DateTime.tryParse(json['timer_start_date'] as String)
@@ -35,8 +41,10 @@ class Group {
       timerTitle: json['timer_title'] as String?,
     );
   }
-  
+
   // Helper for UI compatibility
   DateTime get createdAt => timerStartDate ?? DateTime.now();
   String? get topMessage => pinnedMessage;
+  bool isOwnedBy(int userId) => creatorId == userId || myRole == 'owner';
+  bool get canManageMembers => myRole == 'owner' || myRole == 'admin';
 }
