@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vocalin/src/models/album.dart';
 import 'package:vocalin/src/models/group.dart';
 import 'package:vocalin/src/models/group_action_result.dart';
 import 'package:vocalin/src/models/group_list_item.dart';
@@ -109,6 +110,57 @@ void main() {
 
       expect(apiService.lastSwitchedGroupId, 12);
       expect(dataService.errorMessage, isNull);
+    });
+
+    test('updateProfile stores updated nickname avatar and status locally',
+        () async {
+      dataService.syncAuthState(
+        User(
+          id: 7,
+          nickname: 'Taylor',
+          avatarUrl: 'https://old.example/avatar.png',
+          currentStatus: 'Old status',
+          groupId: 5,
+          role: 'member',
+        ),
+      );
+      apiService.createdGroup = Group(
+        id: 5,
+        name: 'Warm Home',
+        inviteCode: 'ABCD12',
+        members: [
+          User(
+            id: 7,
+            nickname: 'Taylor',
+            avatarUrl: 'https://old.example/avatar.png',
+            currentStatus: 'Old status',
+            groupId: 5,
+            role: 'member',
+          ),
+          User(id: 8, nickname: 'Alex', groupId: 5, role: 'member'),
+        ],
+      );
+      await _waitForIdle(dataService);
+
+      await dataService.updateProfile(
+        nickname: 'Jamie',
+        avatarUrl: 'https://new.example/avatar.png',
+        status: 'Running late but cute',
+      );
+
+      expect(apiService.lastUpdatedProfileNickname, 'Jamie');
+      expect(apiService.lastUpdatedProfileAvatarUrl,
+          'https://new.example/avatar.png');
+      expect(apiService.lastUpdatedProfileStatus, 'Running late but cute');
+      expect(dataService.currentUser?.nickname, 'Jamie');
+      expect(
+          dataService.currentUser?.avatarUrl, 'https://new.example/avatar.png');
+      expect(dataService.currentUser?.currentStatus, 'Running late but cute');
+      expect(dataService.currentGroup?.members.first.nickname, 'Jamie');
+      expect(dataService.currentGroup?.members.first.avatarUrl,
+          'https://new.example/avatar.png');
+      expect(dataService.currentGroup?.members.first.currentStatus,
+          'Running late but cute');
     });
 
     test('pending join request keeps current group unchanged', () async {
@@ -286,18 +338,133 @@ void main() {
       await dataService.addWish(
         'Plan a weekend hike',
         priority: WishPriority.high,
+        isShared: true,
       );
 
       expect(apiService.lastWishContent, 'Plan a weekend hike');
       expect(apiService.lastWishPriority, 'high');
+      expect(apiService.lastWishIsShared, isTrue);
       expect(dataService.errorMessage, isNull);
     });
 
-    test('updateWishPriority forwards selected priority to api', () async {
-      await dataService.updateWishPriority(42, WishPriority.low);
+    test('addPost forwards note shared state to api', () async {
+      await dataService.addPost(
+        Post(
+          id: 1,
+          type: PostType.note,
+          content: 'Leave the key in the planter',
+          createdAt: DateTime(2026),
+          isShared: true,
+        ),
+      );
 
-      expect(apiService.lastUpdatedWishId, 42);
-      expect(apiService.lastUpdatedWishPriority, 'low');
+      expect(apiService.lastCreatedNoteContent, 'Leave the key in the planter');
+      expect(apiService.lastCreatedNoteIsShared, isTrue);
+      expect(dataService.errorMessage, isNull);
+    });
+
+    test('createAlbum forwards photos and shared state to api', () async {
+      await dataService.createAlbum(
+        title: 'Sunset Walk',
+        description: 'Weekend memories',
+        photos: const [
+          AlbumPhotoDraft(
+            url: 'https://example.com/photo.jpg',
+            description: 'Weekend memories',
+            source: AlbumPhotoSource.camera,
+          ),
+        ],
+        isShared: true,
+      );
+
+      expect(apiService.lastCreatedAlbumTitle, 'Sunset Walk');
+      expect(apiService.lastCreatedAlbumDescription, 'Weekend memories');
+      expect(apiService.lastCreatedAlbumPhotos, hasLength(1));
+      expect(
+        apiService.lastCreatedAlbumPhotos?.single.url,
+        'https://example.com/photo.jpg',
+      );
+      expect(
+        apiService.lastCreatedAlbumPhotos?.single.source,
+        AlbumPhotoSource.camera,
+      );
+      expect(apiService.lastCreatedAlbumIsShared, isTrue);
+      expect(dataService.errorMessage, isNull);
+    });
+
+    test('updateNote forwards content and shared state to api', () async {
+      await dataService.updateNote(
+        7,
+        content: 'Dinner is in the fridge',
+        isShared: false,
+      );
+
+      expect(apiService.lastUpdatedNoteId, 7);
+      expect(apiService.lastUpdatedNoteContent, 'Dinner is in the fridge');
+      expect(apiService.lastUpdatedNoteIsShared, isFalse);
+      expect(dataService.errorMessage, isNull);
+    });
+
+    test('updateWish forwards content priority and shared state to api',
+        () async {
+      await dataService.updateWish(
+        21,
+        content: 'See the first snow together',
+        priority: WishPriority.medium,
+        isShared: true,
+      );
+
+      expect(apiService.lastUpdatedWishId, 21);
+      expect(apiService.lastUpdatedWishContent, 'See the first snow together');
+      expect(apiService.lastUpdatedWishPriority, 'medium');
+      expect(apiService.lastUpdatedWishIsShared, isTrue);
+      expect(dataService.errorMessage, isNull);
+    });
+
+    test(
+        'updateSinglePhotoAlbum forwards url description and shared state to api',
+        () async {
+      await dataService.updateSinglePhotoAlbum(
+        11,
+        imageUrl: 'https://example.com/updated.jpg',
+        description: 'Updated caption',
+        isShared: false,
+      );
+
+      expect(apiService.lastUpdatedPhotoId, 11);
+      expect(apiService.lastUpdatedPhotoUrl, 'https://example.com/updated.jpg');
+      expect(apiService.lastUpdatedPhotoDescription, 'Updated caption');
+      expect(apiService.lastUpdatedPhotoIsShared, isFalse);
+      expect(dataService.errorMessage, isNull);
+    });
+
+    test('deleteNote forwards id to api', () async {
+      await dataService.deleteNote(7);
+
+      expect(apiService.lastDeletedNoteId, 7);
+      expect(dataService.errorMessage, isNull);
+    });
+
+    test('deleteWish forwards id to api', () async {
+      await dataService.deleteWish(21);
+
+      expect(apiService.lastDeletedWishId, 21);
+      expect(dataService.errorMessage, isNull);
+    });
+
+    test('deleteAlbum forwards id to api', () async {
+      await dataService.deleteAlbum(11);
+
+      expect(apiService.lastDeletedAlbumId, 11);
+      expect(dataService.errorMessage, isNull);
+    });
+
+    test('deleteSinglePhotoAlbum forwards id to api album deletion helper',
+        () async {
+      await dataService.deleteSinglePhotoAlbum(19);
+
+      expect(apiService.lastDeletedPhotoId, 19);
+      expect(apiService.lastDeletedAlbumId, isNull);
       expect(dataService.errorMessage, isNull);
     });
   });
@@ -334,8 +501,28 @@ class _FakeApiService extends ApiService {
   String? lastInviteCode;
   String? lastWishContent;
   String? lastWishPriority;
+  bool? lastWishIsShared;
+  String? lastCreatedAlbumTitle;
+  String? lastCreatedAlbumDescription;
+  List<AlbumPhotoDraft>? lastCreatedAlbumPhotos;
+  bool? lastCreatedAlbumIsShared;
+  int? lastUpdatedPhotoId;
+  String? lastUpdatedPhotoUrl;
+  String? lastUpdatedPhotoDescription;
+  bool? lastUpdatedPhotoIsShared;
   int? lastUpdatedWishId;
   String? lastUpdatedWishPriority;
+  String? lastUpdatedWishContent;
+  bool? lastUpdatedWishIsShared;
+  int? lastDeletedWishId;
+  int? lastUpdatedNoteId;
+  String? lastUpdatedNoteContent;
+  bool? lastUpdatedNoteIsShared;
+  int? lastDeletedNoteId;
+  int? lastDeletedPhotoId;
+  String? lastCreatedNoteContent;
+  bool? lastCreatedNoteIsShared;
+  int? lastDeletedAlbumId;
   int? lastSwitchedGroupId;
   int? lastLeftGroupId;
   int? lastRemovedGroupId;
@@ -348,6 +535,9 @@ class _FakeApiService extends ApiService {
   String? lastReviewedJoinAction;
   int? lastReviewedOwnerGroupId;
   String? lastReviewedOwnerAction;
+  String? lastUpdatedProfileNickname;
+  String? lastUpdatedProfileAvatarUrl;
+  String? lastUpdatedProfileStatus;
   int getGroupCalls = 0;
 
   @override
@@ -458,7 +648,18 @@ class _FakeApiService extends ApiService {
   }
 
   @override
-  Future<List<Post>> getPhotos() async => const [];
+  Future<void> updateProfile({
+    required String nickname,
+    String? avatarUrl,
+    String? status,
+  }) async {
+    lastUpdatedProfileNickname = nickname;
+    lastUpdatedProfileAvatarUrl = avatarUrl;
+    lastUpdatedProfileStatus = status;
+  }
+
+  @override
+  Future<List<Album>> getAlbums() async => const [];
 
   @override
   Future<List<Post>> getNotes() async => const [];
@@ -467,14 +668,90 @@ class _FakeApiService extends ApiService {
   Future<List<Wish>> getWishlist() async => const [];
 
   @override
-  Future<void> addWish(String content, {String? priority}) async {
-    lastWishContent = content;
-    lastWishPriority = priority;
+  Future<void> createAlbum({
+    required String title,
+    String? description,
+    required List<AlbumPhotoDraft> photos,
+    bool isShared = false,
+  }) async {
+    lastCreatedAlbumTitle = title;
+    lastCreatedAlbumDescription = description;
+    lastCreatedAlbumPhotos = photos;
+    lastCreatedAlbumIsShared = isShared;
   }
 
   @override
-  Future<void> updateWishPriority(int id, String priority) async {
+  Future<void> updateSinglePhotoAlbum(
+    int id, {
+    required String url,
+    required String description,
+    AlbumPhotoSource source = AlbumPhotoSource.library,
+    required bool isShared,
+  }) async {
+    lastUpdatedPhotoId = id;
+    lastUpdatedPhotoUrl = url;
+    lastUpdatedPhotoDescription = description;
+    lastUpdatedPhotoIsShared = isShared;
+  }
+
+  @override
+  Future<void> deleteAlbum(int id) async {
+    lastDeletedAlbumId = id;
+  }
+
+  @override
+  Future<void> deleteSinglePhotoAlbum(int id) async {
+    lastDeletedPhotoId = id;
+  }
+
+  @override
+  Future<void> createNote(String content, {bool isShared = false}) async {
+    lastCreatedNoteContent = content;
+    lastCreatedNoteIsShared = isShared;
+  }
+
+  @override
+  Future<void> updateNote(
+    int id, {
+    required String content,
+    required bool isShared,
+  }) async {
+    lastUpdatedNoteId = id;
+    lastUpdatedNoteContent = content;
+    lastUpdatedNoteIsShared = isShared;
+  }
+
+  @override
+  Future<void> deleteNote(int id) async {
+    lastDeletedNoteId = id;
+  }
+
+  @override
+  Future<void> addWish(
+    String content, {
+    String? priority,
+    bool isShared = false,
+  }) async {
+    lastWishContent = content;
+    lastWishPriority = priority;
+    lastWishIsShared = isShared;
+  }
+
+  @override
+  Future<void> updateWish(
+    int id, {
+    required String content,
+    required String priority,
+    required bool isShared,
+  }) async {
     lastUpdatedWishId = id;
+    lastUpdatedWishContent = content;
     lastUpdatedWishPriority = priority;
+    lastUpdatedWishIsShared = isShared;
+  }
+
+  @override
+  Future<void> deleteWish(int id) async {
+    lastDeletedWishId = id;
   }
 }

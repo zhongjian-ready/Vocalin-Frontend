@@ -73,7 +73,7 @@ class RecordsScreen extends StatelessWidget {
                         tabs: [
                           Tab(
                             icon: Icon(Icons.photo_album_rounded),
-                            text: 'Album',
+                            text: 'Albums',
                           ),
                           Tab(
                             icon: Icon(Icons.note_alt_rounded),

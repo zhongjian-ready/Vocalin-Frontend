@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../screens/home/home_screen.dart';
+import '../screens/messages/messages_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/records/records_screen.dart';
 import 'app_routes.dart';
@@ -31,6 +32,12 @@ const appDestinations = <AppDestination>[
     label: 'Records',
     icon: CupertinoIcons.collections,
     screen: RecordsScreen(),
+  ),
+  AppDestination(
+    route: AppRoutes.messages,
+    label: 'Messages',
+    icon: CupertinoIcons.chat_bubble_2,
+    screen: MessagesScreen(),
   ),
   AppDestination(
     route: AppRoutes.profile,

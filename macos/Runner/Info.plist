@@ -26,6 +26,10 @@
 	<string>$(PRODUCT_COPYRIGHT)</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Vocalin needs camera access so you can add photos directly into an album.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Vocalin needs photo library access so you can choose photos for an album.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

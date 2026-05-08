@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../models/space_inbox_item.dart';
 import '../navigation/app_destinations.dart';
 import '../navigation/app_routes.dart';
 import '../services/data_service.dart';
-import 'profile/space_management_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key, this.initialRoute = AppRoutes.home});
@@ -55,57 +53,32 @@ class _MainScreenState extends State<MainScreen> {
           for (final destination in appDestinations) destination.screen,
         ],
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: Consumer<DataService>(
+      bottomNavigationBar: Consumer<DataService>(
         builder: (context, dataService, child) {
-          final inboxItems = dataService.spaceInboxItems;
-          if (inboxItems.isEmpty) {
-            return const SizedBox.shrink();
-          }
+          final inboxCount = dataService.spaceInboxItems.length;
 
-          return FloatingActionButton.extended(
-            backgroundColor: const Color(0xFFCA7C56),
-            foregroundColor: Colors.white,
-            onPressed: () => _openInbox(context, inboxItems),
-            icon: const Icon(Icons.mark_chat_unread_rounded),
-            label: Text('${inboxItems.length}'),
-          );
-        },
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          _setCurrentRoute(appDestinations[index].route);
-        },
-        items: [
-          for (final destination in appDestinations)
-            BottomNavigationBarItem(
-              icon: Icon(destination.icon),
-              label: destination.label,
-            ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _openInbox(
-    BuildContext context,
-    List<SpaceInboxItem> inboxItems,
-  ) {
-    return showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => _InboxSheet(
-        items: inboxItems,
-        onOpenItem: (item) {
-          Navigator.of(sheetContext).pop();
-          setState(() {
-            _currentIndex = _indexForRoute(AppRoutes.profile);
-          });
-          Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => const SpaceManagementScreen(),
-            ),
+          return BottomNavigationBar(
+            type: BottomNavigationBarType.fixed,
+            backgroundColor: const Color(0xFFFFFBF7),
+            selectedItemColor: const Color(0xFFCA7C56),
+            unselectedItemColor: const Color(0xFF9C8778),
+            elevation: 0,
+            currentIndex: _currentIndex,
+            onTap: (index) {
+              _setCurrentRoute(appDestinations[index].route);
+            },
+            items: [
+              for (final destination in appDestinations)
+                BottomNavigationBarItem(
+                  icon: _NavigationIcon(
+                    icon: destination.icon,
+                    badgeCount: destination.route == AppRoutes.messages
+                        ? inboxCount
+                        : 0,
+                  ),
+                  label: destination.label,
+                ),
+            ],
           );
         },
       ),
@@ -113,89 +86,41 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-class _InboxSheet extends StatelessWidget {
-  const _InboxSheet({required this.items, required this.onOpenItem});
+class _NavigationIcon extends StatelessWidget {
+  const _NavigationIcon({required this.icon, required this.badgeCount});
 
-  final List<SpaceInboxItem> items;
-  final ValueChanged<SpaceInboxItem> onOpenItem;
+  final IconData icon;
+  final int badgeCount;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-        child: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFFFFFBF7),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Messages',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  ],
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon),
+        if (badgeCount > 0)
+          Positioned(
+            right: -8,
+            top: -6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFCA7C56),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              constraints: const BoxConstraints(minWidth: 18),
+              child: Text(
+                badgeCount > 99 ? '99+' : '$badgeCount',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
                 ),
-                const SizedBox(height: 16),
-                Flexible(
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: items.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final item = items[index];
-                      return Material(
-                        color: const Color(0xFFFFF7F0),
-                        borderRadius: BorderRadius.circular(18),
-                        child: ListTile(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          leading: CircleAvatar(
-                            backgroundColor: const Color(0xFFFFE3C8),
-                            child: Icon(
-                              item.type == SpaceInboxItemType.joinRequest
-                                  ? Icons.person_add_alt_1_rounded
-                                  : Icons.workspace_premium_rounded,
-                              color: const Color(0xFFB56C37),
-                            ),
-                          ),
-                          title: Text(item.title),
-                          titleTextStyle: theme.textTheme.titleMedium?.copyWith(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                            color: const Color(0xFF2E2520),
-                            height: 1.3,
-                          ),
-                          trailing: const Icon(Icons.chevron_right_rounded),
-                          onTap: () => onOpenItem(item),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+      ],
     );
   }
 }

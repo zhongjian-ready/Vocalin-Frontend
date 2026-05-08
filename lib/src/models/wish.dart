@@ -58,12 +58,39 @@ enum WishPriority {
   }
 }
 
+bool _parseWishSharedValue(Map<String, dynamic> json) {
+  final dynamic sharedValue =
+      json['is_shared'] ?? json['isShared'] ?? json['shared'];
+  if (sharedValue is bool) {
+    return sharedValue;
+  }
+  if (sharedValue is num) {
+    return sharedValue != 0;
+  }
+  if (sharedValue is String) {
+    final normalized = sharedValue.trim().toLowerCase();
+    return normalized == 'true' ||
+        normalized == '1' ||
+        normalized == 'shared' ||
+        normalized == 'public';
+  }
+
+  final dynamic visibilityValue = json['visibility'];
+  if (visibilityValue is String) {
+    final normalizedVisibility = visibilityValue.trim().toLowerCase();
+    return normalizedVisibility == 'shared' || normalizedVisibility == 'public';
+  }
+
+  return false;
+}
+
 class Wish {
   final int id;
   final String content;
   final bool isCompleted;
   final int? groupId;
   final WishPriority? priority;
+  final bool isShared;
 
   Wish({
     required this.id,
@@ -71,6 +98,7 @@ class Wish {
     this.isCompleted = false,
     this.groupId,
     this.priority,
+    this.isShared = false,
   });
 
   factory Wish.fromJson(Map<String, dynamic> json) {
@@ -82,6 +110,7 @@ class Wish {
       priority: WishPriority.fromJsonValue(
         json['priority'] ?? json['Priority'],
       ),
+      isShared: _parseWishSharedValue(json),
     );
   }
 
@@ -91,6 +120,7 @@ class Wish {
     bool? isCompleted,
     int? groupId,
     WishPriority? priority,
+    bool? isShared,
   }) {
     return Wish(
       id: id ?? this.id,
@@ -98,6 +128,7 @@ class Wish {
       isCompleted: isCompleted ?? this.isCompleted,
       groupId: groupId ?? this.groupId,
       priority: priority ?? this.priority,
+      isShared: isShared ?? this.isShared,
     );
   }
 

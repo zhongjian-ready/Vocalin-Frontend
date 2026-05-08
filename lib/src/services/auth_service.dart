@@ -44,6 +44,16 @@ class AuthService extends ChangeNotifier {
   bool get isSubmitting => _isSubmitting;
   bool get isRestoringSession => _isRestoringSession;
 
+  Future<void> updateCurrentUser(User user) async {
+    _currentUser = user;
+    _api.setUserId(user.id.toString());
+
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_userStorageKey, jsonEncode(user.toJson()));
+
+    notifyListeners();
+  }
+
   Future<User> loginWithNickname({
     required String nickname,
     required String password,
@@ -56,7 +66,9 @@ class AuthService extends ChangeNotifier {
         );
 
         if (result.accessToken == null || result.accessToken!.isEmpty) {
-          throw const AuthException('登录成功，但服务端没有返回 access token。');
+          throw const AuthException(
+            'Sign-in succeeded, but the server did not return an access token.',
+          );
         }
 
         await _applySession(
@@ -149,7 +161,9 @@ class AuthService extends ChangeNotifier {
     );
 
     if (loginResult.accessToken == null || loginResult.accessToken!.isEmpty) {
-      throw const AuthException('注册成功，但自动登录缺少 access token。');
+      throw const AuthException(
+        'Registration succeeded, but automatic sign-in is missing an access token.',
+      );
     }
 
     await _applySession(
@@ -296,7 +310,7 @@ class AuthService extends ChangeNotifier {
       }
     }
 
-    return '请求失败，请稍后再试。';
+    return 'Request failed. Please try again later.';
   }
 
   String? _firstMessage(List<dynamic> values) {

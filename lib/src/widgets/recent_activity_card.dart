@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import '../models/post.dart';
 import 'package:intl/intl.dart';
+
+import '../models/post.dart';
 
 class RecentActivityCard extends StatelessWidget {
   final Post? latestPost;
@@ -27,7 +28,8 @@ class RecentActivityCard extends StatelessWidget {
             const SizedBox(height: 8),
             Row(
               children: [
-                if (latestPost!.type == PostType.photo && latestPost!.imageUrl != null)
+                if (latestPost!.type == PostType.photo &&
+                    latestPost!.imageUrl != null)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: Image.network(
@@ -47,14 +49,20 @@ class RecentActivityCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        latestPost!.content ?? (latestPost!.type == PostType.photo ? 'Shared a photo' : 'Shared a note'),
+                        latestPost!.content ??
+                            (latestPost!.type == PostType.photo
+                                ? 'Updated an album with photos'
+                                : 'Shared a note'),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        DateFormat.yMMMd().add_jm().format(latestPost!.createdAt),
-                        style: const TextStyle(fontSize: 10, color: Colors.grey),
+                        DateFormat.yMMMd()
+                            .add_jm()
+                            .format(latestPost!.createdAt),
+                        style:
+                            const TextStyle(fontSize: 10, color: Colors.grey),
                       ),
                     ],
                   ),

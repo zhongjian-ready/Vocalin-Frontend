@@ -61,6 +61,7 @@ class HomeScreen extends StatelessWidget {
               children: [
                 CompanionTimerCard(
                   startDate: group.createdAt,
+                  title: "We've been together in ${group.name} for",
                   onTap: () => _showMembersDialog(context, group.members),
                 ),
                 if (group.topMessage != null)

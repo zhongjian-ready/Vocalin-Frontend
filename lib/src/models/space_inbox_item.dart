@@ -4,6 +4,14 @@ enum SpaceInboxItemType {
   unknown,
 }
 
+DateTime? _parseDateTime(dynamic value) {
+  if (value is! String || value.trim().isEmpty) {
+    return null;
+  }
+
+  return DateTime.tryParse(value.trim());
+}
+
 class SpaceInboxItem {
   const SpaceInboxItem({
     required this.id,
@@ -41,9 +49,7 @@ class SpaceInboxItem {
       requesterNickname: json['requester_nickname'] as String?,
       targetUserId: json['target_user_id'] as int?,
       targetNickname: json['target_nickname'] as String?,
-      createdAt: json['created_at'] is String
-          ? DateTime.tryParse(json['created_at'] as String)
-          : null,
+      createdAt: _parseDateTime(json['created_at']),
     );
   }
 

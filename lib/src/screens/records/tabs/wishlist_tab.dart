@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../models/wish.dart';
 import '../../../services/data_service.dart';
+import '../record_delete_confirmation_dialog.dart';
 
 class WishlistTab extends StatefulWidget {
   const WishlistTab({super.key});
@@ -93,6 +94,11 @@ class _WishlistTabState extends State<WishlistTab> {
                               onToggle: () => dataService.toggleWish(wish.id),
                               onEdit: () => _showEditWishDialog(
                                   context, dataService, wish),
+                              onLongPress: () => _confirmDeleteWish(
+                                context,
+                                dataService,
+                                wish,
+                              ),
                             ),
                           ),
                         ],
@@ -130,6 +136,11 @@ class _WishlistTabState extends State<WishlistTab> {
                               onToggle: () => dataService.toggleWish(wish.id),
                               onEdit: () => _showEditWishDialog(
                                   context, dataService, wish),
+                              onLongPress: () => _confirmDeleteWish(
+                                context,
+                                dataService,
+                                wish,
+                              ),
                             ),
                           ),
                         ],
@@ -166,12 +177,17 @@ class _WishlistTabState extends State<WishlistTab> {
       title: 'New Wish',
       initialName: '',
       initialPriority: WishPriority.medium,
+      initialIsShared: false,
     ).then((result) {
       if (result == null || result.name.isEmpty) {
         return;
       }
 
-      dataService.addWish(result.name, priority: result.priority);
+      dataService.addWish(
+        result.name,
+        priority: result.priority,
+        isShared: result.isShared,
+      );
     });
   }
 
@@ -188,29 +204,49 @@ class _WishlistTabState extends State<WishlistTab> {
       title: 'Edit Wish',
       initialName: wish.title,
       initialPriority: initialPriority,
-      helperText: 'Priority will be synced immediately after saving.',
+      initialIsShared: wish.isShared,
     ).then((result) async {
       if (!mounted || result == null) {
         return;
       }
 
       final normalizedName = result.name.trim();
-      final hasNameChange = normalizedName != wish.title.trim();
+      final hasContentChange = normalizedName != wish.title.trim();
       final hasPriorityChange = result.priority != wish.priority;
+      final hasVisibilityChange = result.isShared != wish.isShared;
 
-      if (hasPriorityChange) {
-        await dataService.updateWishPriority(wish.id, result.priority);
+      if (!hasContentChange && !hasPriorityChange && !hasVisibilityChange) {
+        return;
       }
 
-      if (mounted && hasNameChange) {
-        messenger?.showSnackBar(
-          const SnackBar(
-            content:
-                Text('Wish name update is waiting for backend API support.'),
-          ),
-        );
+      await dataService.updateWish(
+        wish.id,
+        content: normalizedName,
+        priority: result.priority,
+        isShared: result.isShared,
+      );
+
+      if (mounted) {
+        messenger?.hideCurrentSnackBar();
       }
     });
+  }
+
+  Future<void> _confirmDeleteWish(
+    BuildContext context,
+    DataService dataService,
+    Wish wish,
+  ) async {
+    final shouldDelete = await showRecordDeleteConfirmationDialog(
+      context,
+      title: 'Delete Wish',
+      message: 'Delete this wish permanently?',
+    );
+    if (!shouldDelete) {
+      return;
+    }
+
+    await dataService.deleteWish(wish.id);
   }
 
   Future<_WishFormResult?> _showWishDialog(
@@ -218,10 +254,11 @@ class _WishlistTabState extends State<WishlistTab> {
     required String title,
     required String initialName,
     required WishPriority initialPriority,
-    String? helperText,
+    required bool initialIsShared,
   }) {
     final controller = TextEditingController(text: initialName);
     var selectedPriority = initialPriority;
+    var isShared = initialIsShared;
 
     return showDialog<_WishFormResult>(
       context: context,
@@ -234,18 +271,14 @@ class _WishlistTabState extends State<WishlistTab> {
             children: [
               TextField(
                 controller: controller,
+                keyboardType: TextInputType.multiline,
+                minLines: 1,
+                maxLines: 4,
                 decoration: const InputDecoration(
                   hintText: 'What do you want to do together?',
                 ),
               ),
               const SizedBox(height: 16),
-              if (helperText != null) ...[
-                Text(
-                  helperText,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 12),
-              ],
               DropdownButtonFormField<WishPriority>(
                 initialValue: selectedPriority,
                 decoration: const InputDecoration(
@@ -269,6 +302,15 @@ class _WishlistTabState extends State<WishlistTab> {
                   });
                 },
               ),
+              const SizedBox(height: 16),
+              _WishVisibilitySelector(
+                value: isShared,
+                onChanged: (value) {
+                  setDialogState(() {
+                    isShared = value;
+                  });
+                },
+              ),
             ],
           ),
           actions: [
@@ -284,7 +326,11 @@ class _WishlistTabState extends State<WishlistTab> {
                 }
                 Navigator.pop(
                   context,
-                  _WishFormResult(name: name, priority: selectedPriority),
+                  _WishFormResult(
+                    name: name,
+                    priority: selectedPriority,
+                    isShared: isShared,
+                  ),
                 );
               },
               child: const Text('Save'),
@@ -301,11 +347,13 @@ class _WishListItem extends StatelessWidget {
     required this.wish,
     required this.onToggle,
     required this.onEdit,
+    required this.onLongPress,
   });
 
   final Wish wish;
   final VoidCallback onToggle;
   final VoidCallback onEdit;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -316,68 +364,119 @@ class _WishListItem extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(10),
-                  onTap: onEdit,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 4, 8, 4),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 10,
-                          height: 10,
-                          margin: const EdgeInsets.only(right: 12),
-                          decoration: BoxDecoration(
-                            color: priorityStyle.accentColor,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            wish.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              decoration: wish.isCompleted
-                                  ? TextDecoration.lineThrough
-                                  : null,
-                              color: wish.isCompleted
-                                  ? const Color(0xFF8E8A84)
-                                  : const Color(0xFF2F2A25),
-                              fontSize: 16,
-                              fontWeight: wish.priority == WishPriority.high
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onEdit,
+          onLongPress: onLongPress,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(6, 8, 10, 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 1),
+                  child: Checkbox(
+                    value: wish.isCompleted,
+                    onChanged: (_) => onToggle(),
+                    activeColor: priorityStyle.accentColor,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity:
+                        const VisualDensity(horizontal: -2, vertical: -2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    side: BorderSide(
+                      color: priorityStyle.accentColor,
+                      width: 1.8,
                     ),
                   ),
                 ),
-              ),
-              Checkbox(
-                value: wish.isCompleted,
-                onChanged: (_) => onToggle(),
-                activeColor: priorityStyle.accentColor,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                visualDensity:
-                    const VisualDensity(horizontal: -2, vertical: -2),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 7, 0, 1),
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          if (!wish.isShared)
+                            const WidgetSpan(
+                              alignment: PlaceholderAlignment.middle,
+                              child: Padding(
+                                padding: EdgeInsets.only(right: 4),
+                                child: Icon(
+                                  Icons.lock_outline,
+                                  size: 16,
+                                  color: Color(0xFF8E8A84),
+                                ),
+                              ),
+                            ),
+                          TextSpan(text: wish.title),
+                        ],
+                      ),
+                      softWrap: true,
+                      style: TextStyle(
+                        decoration: wish.isCompleted
+                            ? TextDecoration.lineThrough
+                            : null,
+                        color: wish.isCompleted
+                            ? const Color(0xFF8E8A84)
+                            : const Color(0xFF2F2A25),
+                        fontSize: 16,
+                        fontWeight: wish.priority == WishPriority.high
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
                 ),
-                side: BorderSide(color: priorityStyle.accentColor, width: 1.8),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _WishVisibilitySelector extends StatelessWidget {
+  const _WishVisibilitySelector({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Visibility',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ChoiceChip(
+              selected: value == false,
+              avatar: const Icon(Icons.lock_outline, size: 18),
+              label: const Text('Private'),
+              onSelected: (_) => onChanged(false),
+            ),
+            ChoiceChip(
+              selected: value == true,
+              avatar: const Icon(Icons.groups_2_outlined, size: 18),
+              label: const Text('Public'),
+              onSelected: (_) => onChanged(true),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -408,8 +507,13 @@ class _WishPriorityStyle {
 }
 
 class _WishFormResult {
-  const _WishFormResult({required this.name, required this.priority});
+  const _WishFormResult({
+    required this.name,
+    required this.priority,
+    required this.isShared,
+  });
 
   final String name;
   final WishPriority priority;
+  final bool isShared;
 }

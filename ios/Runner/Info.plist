@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Vocalin needs camera access so you can add photos directly into an album.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Vocalin needs photo library access so you can choose photos for an album.</string>
 </dict>
 </plist>

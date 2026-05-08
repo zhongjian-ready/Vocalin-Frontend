@@ -1,5 +1,13 @@
 import 'user.dart';
 
+DateTime? _parseDateTime(dynamic value) {
+  if (value is! String || value.trim().isEmpty) {
+    return null;
+  }
+
+  return DateTime.tryParse(value.trim());
+}
+
 class Group {
   final int id;
   final String name;
@@ -41,9 +49,7 @@ class Group {
       creatorId: json['creator_id'] as int?,
       myRole: json['my_role'] as String?,
       pinnedMessage: json['pinned_message'] as String?,
-      timerStartDate: json['timer_start_date'] != null
-          ? DateTime.tryParse(json['timer_start_date'] as String)
-          : null,
+      timerStartDate: _parseDateTime(json['timer_start_date']),
       timerTitle: json['timer_title'] as String?,
       pendingOwnershipTransfer:
           json['pending_ownership_transfer'] as bool? ?? false,

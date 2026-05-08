@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vocalin/src/models/album.dart';
 import 'package:vocalin/src/models/post.dart';
 import 'package:vocalin/src/services/api_service.dart';
 import 'package:vocalin/src/services/auth_service.dart';
@@ -37,7 +38,7 @@ void main() {
           );
         }
 
-        if (requestPath.endsWith('/records/photos')) {
+        if (requestPath.endsWith('/records/albums')) {
           return _jsonResponse(
             options,
             200,
@@ -47,9 +48,35 @@ void main() {
               'data': [
                 {
                   'id': 11,
-                  'url': 'https://example.com/photo.jpg',
-                  'description': 'photo',
+                  'title': 'Weekend Walk',
+                  'description': 'Along the river',
+                  'visibility': 'public',
+                  'photos': [
+                    {
+                      'id': 101,
+                      'url': 'https://example.com/photo.jpg',
+                      'description': 'Cover shot',
+                      'source': 'camera',
+                      'createdAt': '2026-04-30T10:00:00Z',
+                      'updatedAt': '2026-04-30T10:05:00Z',
+                    },
+                    {
+                      'id': 102,
+                      'url': 'https://example.com/photo-2.jpg',
+                      'source': 'library',
+                      'createdAt': '2026-04-30T10:06:00Z',
+                      'updatedAt': '2026-04-30T10:06:00Z',
+                    },
+                    {
+                      'id': 103,
+                      'url': 'https://example.com/photo-3.jpg',
+                      'source': 'library',
+                      'createdAt': '2026-04-30T10:07:00Z',
+                      'updatedAt': '2026-04-30T10:07:00Z',
+                    },
+                  ],
                   'createdAt': '2026-04-30T10:00:00Z',
+                  'updatedAt': '2026-04-30T10:05:00Z',
                 },
               ],
             },
@@ -101,16 +128,74 @@ void main() {
       final apiService = ApiService.test(dio: dio);
 
       final group = await apiService.getGroup();
-      final photos = await apiService.getPhotos();
+      final albums = await apiService.getAlbums();
       final notes = await apiService.getNotes();
       final wishes = await apiService.getWishlist();
 
       expect(group.name, 'Warm Home');
-      expect(photos.single.imageUrl, 'https://example.com/photo.jpg');
+      expect(albums.single.coverImageUrl, 'https://example.com/photo.jpg');
+      expect(albums.single.totalPhotos, 3);
       expect(notes.single.type, PostType.note);
       expect(notes.single.createdAt.toUtc(),
           DateTime.parse('2026-04-29T10:00:00Z'));
       expect(wishes.single.isCompleted, isTrue);
+    });
+
+    test('createAlbum sends album payload matching Swagger contract', () async {
+      late Map<String, dynamic> capturedBody;
+
+      final dio = Dio(
+        BaseOptions(baseUrl: 'http://localhost:8080/api'),
+      );
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) {
+        if (options.uri.path.endsWith('/records/albums') &&
+            options.method == 'POST') {
+          capturedBody = Map<String, dynamic>.from(options.data as Map);
+          return _jsonResponse(
+            options,
+            200,
+            {
+              'code': 'OK',
+              'message': 'success',
+              'data': {
+                'id': 11,
+                'title': 'Weekend Walk',
+                'photos': const [],
+              },
+            },
+          );
+        }
+
+        throw StateError(
+          'Unexpected request: ${options.method} ${options.uri}',
+        );
+      });
+
+      final apiService = ApiService.test(dio: dio);
+
+      await apiService.createAlbum(
+        title: 'Weekend Walk',
+        description: 'Along the river',
+        photos: const [
+          AlbumPhotoDraft(
+            url: 'https://example.com/photo.jpg',
+            description: 'Cover shot',
+            source: AlbumPhotoSource.camera,
+          ),
+        ],
+        isShared: true,
+      );
+
+      expect(capturedBody['title'], 'Weekend Walk');
+      expect(capturedBody['description'], 'Along the river');
+      expect(capturedBody['visibility'], 'public');
+      expect(capturedBody['photos'], [
+        {
+          'url': 'https://example.com/photo.jpg',
+          'description': 'Cover shot',
+          'source': 'camera',
+        },
+      ]);
     });
   });
 

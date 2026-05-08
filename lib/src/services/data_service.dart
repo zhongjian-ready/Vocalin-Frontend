@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/album.dart';
 import '../models/group.dart';
 import '../models/group_action_result.dart';
 import '../models/group_list_item.dart';
@@ -22,6 +23,7 @@ class DataService extends ChangeNotifier {
   Group? _currentGroup;
   List<GroupListItem> _joinedGroups = [];
   List<SpaceInboxItem> _spaceInboxItems = [];
+  List<Album> _albums = [];
   List<Post> _posts = [];
   List<Wish> _wishes = [];
   bool _isLoading = false;
@@ -31,6 +33,7 @@ class DataService extends ChangeNotifier {
   Group? get currentGroup => _currentGroup;
   List<GroupListItem> get joinedGroups => _joinedGroups;
   List<SpaceInboxItem> get spaceInboxItems => _spaceInboxItems;
+  List<Album> get albums => _albums;
   List<Post> get posts => _posts;
   List<Wish> get wishes => _wishes;
   bool get isLoading => _isLoading;
@@ -67,6 +70,7 @@ class DataService extends ChangeNotifier {
       _currentGroup = null;
       _joinedGroups = [];
       _spaceInboxItems = [];
+      _albums = [];
       _posts = [];
       _wishes = [];
       _hasLoadedRemoteData = false;
@@ -97,6 +101,7 @@ class DataService extends ChangeNotifier {
       final group = await _loadGroupOrNull();
       if (group == null) {
         _currentGroup = null;
+        _albums = [];
         _posts = [];
         _wishes = [];
         _hasLoadedRemoteData = true;
@@ -104,17 +109,19 @@ class DataService extends ChangeNotifier {
       }
 
       final results = await Future.wait<dynamic>([
-        _api.getPhotos(),
+        _api.getAlbums(),
         _api.getNotes(),
         _api.getWishlist(),
       ]);
 
-      final photos = results[0] as List<Post>;
+      final albums = results[0] as List<Album>;
       final notes = results[1] as List<Post>;
       final wishes = results[2] as List<Wish>;
 
       _currentGroup = group;
-      _posts = [...photos, ...notes]
+      _albums = [...albums]
+        ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+      _posts = [...albums.map(Post.fromAlbumActivity), ...notes]
         ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
       _wishes = wishes;
       _currentUser = _resolveCurrentUserFromGroup(group) ?? _currentUser;
@@ -178,6 +185,75 @@ class DataService extends ChangeNotifier {
     });
   }
 
+  Future<void> updateProfile({
+    required String nickname,
+    String? avatarUrl,
+    String? status,
+  }) async {
+    if (_currentUser == null) {
+      return;
+    }
+
+    final trimmedNickname = nickname.trim();
+    final normalizedAvatarUrl = avatarUrl?.trim();
+    final normalizedStatus = status?.trim();
+
+    await _runMutation(() async {
+      await _api.updateProfile(
+        nickname: trimmedNickname,
+        avatarUrl: normalizedAvatarUrl == null || normalizedAvatarUrl.isEmpty
+            ? null
+            : normalizedAvatarUrl,
+        status: normalizedStatus == null || normalizedStatus.isEmpty
+            ? null
+            : normalizedStatus,
+      );
+
+      _currentUser = User(
+        id: _currentUser!.id,
+        nickname: trimmedNickname,
+        avatarUrl: normalizedAvatarUrl == null || normalizedAvatarUrl.isEmpty
+            ? null
+            : normalizedAvatarUrl,
+        currentStatus: normalizedStatus == null || normalizedStatus.isEmpty
+            ? null
+            : normalizedStatus,
+        groupId: _currentUser!.groupId,
+        role: _currentUser!.role,
+        membershipStatus: _currentUser!.membershipStatus,
+        ownershipTransferStatus: _currentUser!.ownershipTransferStatus,
+      );
+
+      if (_currentGroup != null) {
+        final updatedMembers = _currentGroup!.members.map((member) {
+          if (member.id != _currentUser!.id) {
+            return member;
+          }
+
+          return _currentUser!;
+        }).toList();
+
+        _currentGroup = Group(
+          id: _currentGroup!.id,
+          name: _currentGroup!.name,
+          inviteCode: _currentGroup!.inviteCode,
+          members: updatedMembers,
+          creatorId: _currentGroup!.creatorId,
+          myRole: _currentGroup!.myRole,
+          pinnedMessage: _currentGroup!.pinnedMessage,
+          timerStartDate: _currentGroup!.timerStartDate,
+          timerTitle: _currentGroup!.timerTitle,
+          pendingOwnershipTransfer: _currentGroup!.pendingOwnershipTransfer,
+          pendingOwnershipTransferRequestId:
+              _currentGroup!.pendingOwnershipTransferRequestId,
+          pendingOwnerId: _currentGroup!.pendingOwnerId,
+        );
+      }
+
+      notifyListeners();
+    });
+  }
+
   Future<void> addPost(Post post) async {
     await _runMutation(() async {
       if (post.type == PostType.photo) {
@@ -186,16 +262,132 @@ class DataService extends ChangeNotifier {
           return;
         }
 
-        await _api.uploadPhoto(imageUrl, post.content?.trim() ?? '');
+        final title = post.content?.trim();
+
+        await _api.createAlbum(
+          title: title == null || title.isEmpty ? 'Untitled Album' : title,
+          description: post.content?.trim(),
+          photos: [
+            AlbumPhotoDraft(
+              url: imageUrl,
+              description: post.content?.trim(),
+            ),
+          ],
+          isShared: post.isShared,
+        );
       } else {
         final content = post.content?.trim();
         if (content == null || content.isEmpty) {
           return;
         }
 
-        await _api.createNote(content);
+        await _api.createNote(content, isShared: post.isShared);
       }
 
+      await refreshData();
+    });
+  }
+
+  Future<void> createAlbum({
+    required String title,
+    String? description,
+    required List<AlbumPhotoDraft> photos,
+    bool isShared = false,
+  }) async {
+    final trimmedTitle = title.trim();
+    if (trimmedTitle.isEmpty) {
+      return;
+    }
+
+    final normalizedPhotos = photos
+        .map(
+          (photo) => AlbumPhotoDraft(
+            url: photo.url.trim(),
+            description: photo.description?.trim(),
+            source: photo.source,
+          ),
+        )
+        .where((photo) => photo.url.isNotEmpty)
+        .toList();
+
+    if (normalizedPhotos.isEmpty) {
+      return;
+    }
+
+    await _runMutation(() async {
+      await _api.createAlbum(
+        title: trimmedTitle,
+        description: description?.trim(),
+        photos: normalizedPhotos,
+        isShared: isShared,
+      );
+      await refreshData();
+    });
+  }
+
+  Future<void> deleteAlbum(int albumId) async {
+    await _runMutation(() async {
+      await _api.deleteAlbum(albumId);
+      await refreshData();
+    });
+  }
+
+  Future<void> updateSinglePhotoAlbum(
+    int photoId, {
+    required String imageUrl,
+    required String description,
+    required bool isShared,
+  }) async {
+    final trimmedTitle = description.trim();
+    final trimmedImageUrl = imageUrl.trim();
+    if (trimmedTitle.isEmpty) {
+      return;
+    }
+    if (trimmedImageUrl.isEmpty) {
+      return;
+    }
+
+    await _runMutation(() async {
+      await _api.updateSinglePhotoAlbum(
+        photoId,
+        url: trimmedImageUrl,
+        description: description.trim(),
+        isShared: isShared,
+      );
+      await refreshData();
+    });
+  }
+
+  Future<void> deleteSinglePhotoAlbum(int photoId) async {
+    await _runMutation(() async {
+      await _api.deleteSinglePhotoAlbum(photoId);
+      await refreshData();
+    });
+  }
+
+  Future<void> updateNote(
+    int noteId, {
+    required String content,
+    required bool isShared,
+  }) async {
+    final trimmedContent = content.trim();
+    if (trimmedContent.isEmpty) {
+      return;
+    }
+
+    await _runMutation(() async {
+      await _api.updateNote(
+        noteId,
+        content: trimmedContent,
+        isShared: isShared,
+      );
+      await refreshData();
+    });
+  }
+
+  Future<void> deleteNote(int noteId) async {
+    await _runMutation(() async {
+      await _api.deleteNote(noteId);
       await refreshData();
     });
   }
@@ -219,6 +411,7 @@ class DataService extends ChangeNotifier {
   Future<void> addWish(
     String title, {
     WishPriority priority = WishPriority.medium,
+    bool isShared = false,
   }) async {
     final trimmedTitle = title.trim();
     if (trimmedTitle.isEmpty) {
@@ -226,14 +419,40 @@ class DataService extends ChangeNotifier {
     }
 
     await _runMutation(() async {
-      await _api.addWish(trimmedTitle, priority: priority.apiValue);
+      await _api.addWish(
+        trimmedTitle,
+        priority: priority.apiValue,
+        isShared: isShared,
+      );
       await _reloadWishlist();
     });
   }
 
-  Future<void> updateWishPriority(int wishId, WishPriority priority) async {
+  Future<void> updateWish(
+    int wishId, {
+    required String content,
+    required WishPriority priority,
+    required bool isShared,
+  }) async {
+    final trimmedContent = content.trim();
+    if (trimmedContent.isEmpty) {
+      return;
+    }
+
     await _runMutation(() async {
-      await _api.updateWishPriority(wishId, priority.apiValue);
+      await _api.updateWish(
+        wishId,
+        content: trimmedContent,
+        priority: priority.apiValue,
+        isShared: isShared,
+      );
+      await _reloadWishlist();
+    });
+  }
+
+  Future<void> deleteWish(int wishId) async {
+    await _runMutation(() async {
+      await _api.deleteWish(wishId);
       await _reloadWishlist();
     });
   }
@@ -465,6 +684,7 @@ class DataService extends ChangeNotifier {
     _currentGroup = null;
     _joinedGroups = [];
     _spaceInboxItems = [];
+    _albums = [];
     _posts = [];
     _wishes = [];
     _isLoading = false;

@@ -10,10 +10,13 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:vocalin/src/app.dart';
+import 'package:vocalin/src/models/album.dart';
+import 'package:vocalin/src/models/user.dart';
 import 'package:vocalin/src/navigation/app_router.dart';
 import 'package:vocalin/src/navigation/app_routes.dart';
 import 'package:vocalin/src/screens/auth/auth_screen.dart';
 import 'package:vocalin/src/screens/profile/profile_screen.dart';
+import 'package:vocalin/src/screens/records/tabs/album_tab.dart';
 import 'package:vocalin/src/services/auth_service.dart';
 import 'package:vocalin/src/services/data_service.dart';
 
@@ -54,12 +57,8 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider(
-            create: (context) => AuthService()
-              ..loginWithNickname(
-                nickname: 'Alice',
-                password: '123456',
-              ),
+          ChangeNotifierProvider<AuthService>(
+            create: (context) => _FakeAuthenticatedAuthService(),
           ),
           ChangeNotifierProxyProvider<AuthService, DataService>(
             create: (context) => DataService(autoInitialize: false),
@@ -79,7 +78,43 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Album'), findsOneWidget);
+    expect(find.text('Albums'), findsOneWidget);
+  });
+
+  testWidgets('Messages tab route opens the message center', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<AuthService>(
+            create: (context) => _FakeAuthenticatedAuthService(),
+          ),
+          ChangeNotifierProxyProvider<AuthService, DataService>(
+            create: (context) => DataService(autoInitialize: false),
+            update: (context, authService, dataService) {
+              final service = dataService ?? DataService(autoInitialize: false);
+              service.syncAuthState(authService.currentUser);
+              return service;
+            },
+          ),
+        ],
+        child: MaterialApp(
+          initialRoute: AppRoutes.messages,
+          onGenerateRoute: AppRouter.onGenerateRoute,
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Private messages and system notices are organized separately here.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byType(FloatingActionButton), findsNothing);
   });
 
   testWidgets('Logout returns to auth screen', (WidgetTester tester) async {
@@ -125,4 +160,81 @@ void main() {
     expect(find.text('欢迎回家'), findsOneWidget);
     expect(find.text('Log Out'), findsNothing);
   });
+
+  testWidgets('Album cards keep details in preview footer only', (
+    WidgetTester tester,
+  ) async {
+    final album = Album(
+      id: 1,
+      title: 'Weekend vibes',
+      description: 'Weekend vibes',
+      coverImageUrl:
+          'https://images.example.com/albums/weekend-vibes-cover.jpg',
+      ownerNickname: 'Alice',
+      createdAt: DateTime(2026, 4, 23),
+      updatedAt: DateTime(2026, 4, 23),
+      photos: [
+        AlbumPhoto(
+          id: 101,
+          imageUrl: 'https://images.example.com/albums/weekend-vibes-1.jpg',
+          description: 'Sunset by the water',
+          createdAt: DateTime(2026, 4, 23),
+          updatedAt: DateTime(2026, 4, 23),
+        ),
+      ],
+      photoCount: 88,
+    );
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<DataService>.value(
+        value: _FakeAlbumDataService([album]),
+        child: const MaterialApp(home: Scaffold(body: AlbumTab())),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('Weekend vibes'), findsOneWidget);
+    expect(find.text('Sunset by the water'), findsNothing);
+    expect(find.byIcon(Icons.photo_library_rounded), findsOneWidget);
+    expect(find.text('88'), findsOneWidget);
+
+    await tester.tap(find.text('Weekend vibes'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Weekend vibes'), findsWidgets);
+    expect(find.text('Sunset by the water'), findsNothing);
+  });
+}
+
+class _FakeAuthenticatedAuthService extends AuthService {
+  _FakeAuthenticatedAuthService();
+
+  static final _user = User(
+    id: 1,
+    nickname: 'Alice',
+    groupId: 5,
+    role: 'member',
+  );
+
+  @override
+  User? get currentUser => _user;
+
+  @override
+  bool get isAuthenticated => true;
+
+  @override
+  bool get isRestoringSession => false;
+}
+
+class _FakeAlbumDataService extends DataService {
+  _FakeAlbumDataService(this._albums) : super(autoInitialize: false);
+
+  final List<Album> _albums;
+
+  @override
+  List<Album> get albums => _albums;
+
+  @override
+  bool get isLoading => false;
 }

@@ -147,13 +147,15 @@ class _AuthScreenState extends State<AuthScreen> {
                                         vertical: 8,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.42),
-                                        borderRadius: BorderRadius.circular(999),
+                                        color: Colors.white
+                                            .withValues(alpha: 0.42),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
                                       ),
                                       child: Text(
                                         _authMode == _AuthMode.login
-                                            ? '慢一点，也没有关系'
-                                            : '把喜欢的生活慢慢装进来',
+                                            ? 'It is okay to slow down'
+                                            : 'Gather the life you love, gently',
                                         style: const TextStyle(
                                           color: Color(0xFFB67857),
                                           fontSize: 13,
@@ -164,9 +166,10 @@ class _AuthScreenState extends State<AuthScreen> {
                                     const SizedBox(height: 16),
                                     Text(
                                       _authMode == _AuthMode.login
-                                          ? '欢迎回家'
-                                          : '创建你的温暖角落',
-                                      style: theme.textTheme.headlineMedium?.copyWith(
+                                          ? 'Welcome back'
+                                          : 'Create your cozy corner',
+                                      style: theme.textTheme.headlineMedium
+                                          ?.copyWith(
                                         fontWeight: FontWeight.w800,
                                         color: const Color(0xFF5C4634),
                                         letterSpacing: 0.4,
@@ -174,12 +177,14 @@ class _AuthScreenState extends State<AuthScreen> {
                                     ),
                                     const SizedBox(height: 12),
                                     ConstrainedBox(
-                                      constraints: const BoxConstraints(maxWidth: 420),
+                                      constraints:
+                                          const BoxConstraints(maxWidth: 420),
                                       child: Text(
                                         _authMode == _AuthMode.login
-                                            ? '愿你在这里放下疲惫，把每一次相遇都过成温柔的日常。'
-                                            : '从这里开始，慢慢把彼此的日常收藏成值得回看的时光。',
-                                        style: theme.textTheme.bodyLarge?.copyWith(
+                                            ? 'Set your worries down here, and let each moment feel a little softer.'
+                                            : 'Start here and turn everyday moments into memories worth revisiting.',
+                                        style:
+                                            theme.textTheme.bodyLarge?.copyWith(
                                           color: const Color(0xFF8A6B58),
                                           height: 1.65,
                                         ),
@@ -191,7 +196,8 @@ class _AuthScreenState extends State<AuthScreen> {
                               const SizedBox(height: 26),
                               Container(
                                 width: double.infinity,
-                                padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+                                padding:
+                                    const EdgeInsets.fromLTRB(18, 18, 18, 14),
                                 decoration: BoxDecoration(
                                   color: Colors.white.withValues(alpha: 0.7),
                                   borderRadius: BorderRadius.circular(32),
@@ -210,7 +216,8 @@ class _AuthScreenState extends State<AuthScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     AnimatedSwitcher(
-                                      duration: const Duration(milliseconds: 220),
+                                      duration:
+                                          const Duration(milliseconds: 220),
                                       child: _authMode == _AuthMode.login
                                           ? _buildLoginPanel(context)
                                           : _buildRegisterPanel(context),
@@ -221,8 +228,8 @@ class _AuthScreenState extends State<AuthScreen> {
                                         onPressed: _toggleAuthMode,
                                         child: Text(
                                           _authMode == _AuthMode.login
-                                              ? '还没有注册？去注册页面'
-                                              : '已经注册过了？返回登录',
+                                              ? 'Don\'t have an account? Create one'
+                                              : 'Already registered? Back to sign in',
                                           style: const TextStyle(
                                             color: Color(0xFFB36A48),
                                             fontWeight: FontWeight.w700,
@@ -258,7 +265,7 @@ class _AuthScreenState extends State<AuthScreen> {
         const Padding(
           padding: EdgeInsets.only(left: 4, bottom: 10),
           child: Text(
-            '选择登录方式',
+            'Choose a sign-in method',
             style: TextStyle(
               color: Color(0xFF9E7963),
               fontSize: 13,
@@ -277,7 +284,7 @@ class _AuthScreenState extends State<AuthScreen> {
               children: [
                 Expanded(
                   child: _MethodButton(
-                    label: '昵称密码',
+                    label: 'Nickname & Password',
                     selected: _loginMethod == _LoginMethod.nickname,
                     onTap: () {
                       setState(() {
@@ -288,7 +295,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 Expanded(
                   child: _MethodButton(
-                    label: '手机号验证码',
+                    label: 'Phone & Code',
                     selected: _loginMethod == _LoginMethod.phone,
                     onTap: () {
                       setState(() {
@@ -309,10 +316,11 @@ class _AuthScreenState extends State<AuthScreen> {
               children: [
                 TextFormField(
                   controller: _loginNicknameController,
-                  decoration: _inputDecoration('昵称', Icons.person_outline),
+                  decoration:
+                      _inputDecoration('Nickname', Icons.person_outline),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return '请输入昵称';
+                      return 'Please enter your nickname';
                     }
                     return null;
                   },
@@ -321,7 +329,8 @@ class _AuthScreenState extends State<AuthScreen> {
                 TextFormField(
                   controller: _loginPasswordController,
                   obscureText: _obscureLoginPassword,
-                  decoration: _inputDecoration('密码', Icons.lock_outline).copyWith(
+                  decoration:
+                      _inputDecoration('Password', Icons.lock_outline).copyWith(
                     suffixIcon: IconButton(
                       onPressed: () {
                         setState(() {
@@ -337,7 +346,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return '请输入密码';
+                      return 'Please enter your password';
                     }
                     return null;
                   },
@@ -356,7 +365,7 @@ class _AuthScreenState extends State<AuthScreen> {
                               height: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text('登录'),
+                          : const Text('Sign In'),
                     ),
                   ),
                 ),
@@ -376,7 +385,7 @@ class _AuthScreenState extends State<AuthScreen> {
         TextField(
           controller: _phoneController,
           keyboardType: TextInputType.phone,
-          decoration: _inputDecoration('手机号', Icons.phone_outlined),
+          decoration: _inputDecoration('Phone Number', Icons.phone_outlined),
         ),
         const SizedBox(height: 14),
         Row(
@@ -384,19 +393,22 @@ class _AuthScreenState extends State<AuthScreen> {
             Expanded(
               child: TextField(
                 controller: _codeController,
-                decoration: _inputDecoration('验证码', Icons.mark_email_read_outlined),
+                decoration: _inputDecoration(
+                    'Verification Code', Icons.mark_email_read_outlined),
               ),
             ),
             const SizedBox(width: 12),
             OutlinedButton(
               onPressed: () {
-                _showMessage('验证码登录还在联调中，先用昵称密码登录。');
+                _showMessage(
+                  'Phone verification sign-in is still being integrated. Please use nickname and password for now.',
+                );
               },
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(110, 54),
                 side: const BorderSide(color: Color(0xFFE5B38F)),
               ),
-              child: const Text('获取验证码'),
+              child: const Text('Send Code'),
             ),
           ],
         ),
@@ -405,7 +417,9 @@ class _AuthScreenState extends State<AuthScreen> {
           width: double.infinity,
           child: FilledButton.tonal(
             onPressed: () {
-              _showMessage('手机号验证码登录预留好了，后续接后端接口即可启用。');
+              _showMessage(
+                'Phone verification sign-in is reserved and can be enabled once the backend API is ready.',
+              );
             },
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFFF6E4D6),
@@ -415,7 +429,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 borderRadius: BorderRadius.circular(18),
               ),
             ),
-            child: const Text('暂未开放'),
+            child: const Text('Coming Soon'),
           ),
         ),
       ],
@@ -434,7 +448,7 @@ class _AuthScreenState extends State<AuthScreen> {
           const Padding(
             padding: EdgeInsets.only(left: 4, bottom: 10),
             child: Text(
-              '填写你的注册信息',
+              'Enter your registration details',
               style: TextStyle(
                 color: Color(0xFF9E7963),
                 fontSize: 13,
@@ -444,10 +458,10 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
           TextFormField(
             controller: _registerNicknameController,
-            decoration: _inputDecoration('昵称', Icons.person_outline),
+            decoration: _inputDecoration('Nickname', Icons.person_outline),
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
-                return '请输入昵称';
+                return 'Please enter your nickname';
               }
               return null;
             },
@@ -456,14 +470,14 @@ class _AuthScreenState extends State<AuthScreen> {
           TextFormField(
             controller: _registerPhoneController,
             keyboardType: TextInputType.phone,
-            decoration: _inputDecoration('手机号', Icons.phone_outlined),
+            decoration: _inputDecoration('Phone Number', Icons.phone_outlined),
             validator: (value) {
               final normalized = value?.trim() ?? '';
               if (normalized.isEmpty) {
-                return '请输入手机号';
+                return 'Please enter your phone number';
               }
               if (normalized.length < 11) {
-                return '手机号格式不完整';
+                return 'Phone number looks incomplete';
               }
               return null;
             },
@@ -472,7 +486,8 @@ class _AuthScreenState extends State<AuthScreen> {
           TextFormField(
             controller: _registerPasswordController,
             obscureText: _obscureRegisterPassword,
-            decoration: _inputDecoration('密码', Icons.lock_outline).copyWith(
+            decoration:
+                _inputDecoration('Password', Icons.lock_outline).copyWith(
               suffixIcon: IconButton(
                 onPressed: () {
                   setState(() {
@@ -488,10 +503,10 @@ class _AuthScreenState extends State<AuthScreen> {
             ),
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
-                return '请输入密码';
+                return 'Please enter your password';
               }
               if (value.trim().length < 6) {
-                return '密码至少 6 位';
+                return 'Password must be at least 6 characters';
               }
               return null;
             },
@@ -500,7 +515,8 @@ class _AuthScreenState extends State<AuthScreen> {
           TextFormField(
             controller: _registerConfirmPasswordController,
             obscureText: _obscureRegisterConfirmPassword,
-            decoration: _inputDecoration('再次确认密码', Icons.verified_user_outlined)
+            decoration: _inputDecoration(
+                    'Confirm Password', Icons.verified_user_outlined)
                 .copyWith(
               suffixIcon: IconButton(
                 onPressed: () {
@@ -518,10 +534,10 @@ class _AuthScreenState extends State<AuthScreen> {
             ),
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
-                return '请再次输入密码';
+                return 'Please confirm your password';
               }
               if (value.trim() != _registerPasswordController.text.trim()) {
-                return '两次输入的密码不一致';
+                return 'Passwords do not match';
               }
               return null;
             },
@@ -540,7 +556,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('注册并进入'),
+                    : const Text('Create Account'),
               ),
             ),
           ),
@@ -599,7 +615,7 @@ class _AuthScreenState extends State<AuthScreen> {
           );
     } on AuthException catch (error) {
       await _showFeedbackDialog(
-        title: '登录没有成功',
+        title: 'Sign-in failed',
         message: error.message,
         icon: Icons.lock_outline_rounded,
         accentColor: const Color(0xFFCA7C56),
@@ -621,7 +637,7 @@ class _AuthScreenState extends State<AuthScreen> {
           );
     } on AuthException catch (error) {
       await _showFeedbackDialog(
-        title: '注册暂时没通过',
+        title: 'Registration failed',
         message: error.message,
         icon: Icons.person_add_alt_1_rounded,
         accentColor: const Color(0xFFD08B62),
@@ -631,7 +647,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _showMessage(String message) {
     return _showFeedbackDialog(
-      title: '提示',
+      title: 'Notice',
       message: message,
       icon: Icons.info_outline_rounded,
       accentColor: const Color(0xFFB67957),
@@ -734,7 +750,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                       ),
-                      child: const Text('我知道了'),
+                      child: const Text('OK'),
                     ),
                   ),
                 ],
@@ -771,15 +787,20 @@ class _MethodButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
           child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: selected
-                    ? const Color(0xFFA55E3C)
-                    : const Color(0xFF987867),
-                fontWeight: FontWeight.w700,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                style: TextStyle(
+                  color: selected
+                      ? const Color(0xFFA55E3C)
+                      : const Color(0xFF987867),
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ),

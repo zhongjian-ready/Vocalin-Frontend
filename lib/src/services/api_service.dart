@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import '../models/album.dart';
 import '../models/group.dart';
 import '../models/group_action_result.dart';
 import '../models/group_list_item.dart';
@@ -400,6 +401,10 @@ class ApiService {
     return null;
   }
 
+  String _visibilityFromShared(bool isShared) {
+    return isShared ? 'public' : 'private';
+  }
+
   Map<String, dynamic> _extractResponseDataMap(dynamic payload) {
     final rootMap = _asMap(payload);
     final dataMap = _asMap(rootMap['data']);
@@ -473,6 +478,18 @@ class ApiService {
   }
 
   // Home
+  Future<void> updateProfile({
+    required String nickname,
+    String? avatarUrl,
+    String? status,
+  }) async {
+    await _dio.put('/profile/update', data: {
+      'nickname': nickname,
+      'avatar_url': avatarUrl,
+      'status': status,
+    });
+  }
+
   Future<void> updateStatus(String status) async {
     await _dio.put('/home/status', data: {'status': status});
   }
@@ -510,18 +527,112 @@ class ApiService {
   }
 
   // Records
-  Future<List<Post>> getPhotos() async {
-    final response = await _dio.get('/records/photos');
+  Future<List<Album>> getAlbums() async {
+    final response = await _dio.get('/records/albums');
     return _extractResponseDataList(response.data)
-        .map((item) => Post.fromPhotoJson(_asMap(item)))
+        .map((item) => Album.fromJson(_asMap(item)))
         .toList();
   }
 
-  Future<void> uploadPhoto(String url, String description) async {
-    await _dio.post('/records/photos', data: {
-      'url': url,
-      'description': description,
+  Future<void> createAlbum({
+    required String title,
+    String? description,
+    required List<AlbumPhotoDraft> photos,
+    bool isShared = false,
+  }) async {
+    final normalizedPhotos = photos
+        .where((photo) => photo.url.trim().isNotEmpty)
+        .map((photo) => photo.toJson())
+        .toList();
+
+    await _dio.post('/records/albums', data: {
+      'title': title,
+      if (description != null && description.trim().isNotEmpty)
+        'description': description.trim(),
+      'photos': normalizedPhotos,
+      'visibility': _visibilityFromShared(isShared),
     });
+  }
+
+  Future<void> updateAlbum(
+    int id, {
+    required String title,
+    String? description,
+    required List<AlbumPhotoDraft> photos,
+    required bool isShared,
+  }) async {
+    final normalizedPhotos = photos
+        .where((photo) => photo.url.trim().isNotEmpty)
+        .map((photo) => photo.toJson())
+        .toList();
+
+    await _dio.put('/records/albums/$id', data: {
+      'title': title,
+      if (description != null) 'description': description.trim(),
+      'photos': normalizedPhotos,
+      'visibility': _visibilityFromShared(isShared),
+    });
+  }
+
+  Future<void> deleteAlbum(int id) async {
+    await _dio.delete('/records/albums/$id');
+  }
+
+  Future<List<Post>> getPhotos() async {
+    final albums = await getAlbums();
+    return albums.map(Post.fromAlbumActivity).toList();
+  }
+
+  Future<void> createSinglePhotoAlbum(
+    String url,
+    String description, {
+    AlbumPhotoSource source = AlbumPhotoSource.library,
+    bool isShared = false,
+  }) async {
+    final normalizedDescription = description.trim();
+    await createAlbum(
+      title: normalizedDescription.isEmpty
+          ? 'Untitled Album'
+          : normalizedDescription,
+      description: normalizedDescription,
+      photos: [
+        AlbumPhotoDraft(
+          url: url,
+          description: normalizedDescription,
+          source: source,
+        ),
+      ],
+      isShared: isShared,
+    );
+  }
+
+  Future<void> updateSinglePhotoAlbum(
+    int id, {
+    required String url,
+    required String description,
+    AlbumPhotoSource source = AlbumPhotoSource.library,
+    required bool isShared,
+  }) async {
+    final normalizedDescription = description.trim();
+    await updateAlbum(
+      id,
+      title: normalizedDescription.isEmpty
+          ? 'Untitled Album'
+          : normalizedDescription,
+      description: normalizedDescription,
+      photos: [
+        AlbumPhotoDraft(
+          url: url,
+          description: normalizedDescription,
+          source: source,
+        ),
+      ],
+      isShared: isShared,
+    );
+  }
+
+  Future<void> deleteSinglePhotoAlbum(int id) async {
+    await deleteAlbum(id);
   }
 
   Future<List<Post>> getNotes() async {
@@ -531,12 +642,29 @@ class ApiService {
         .toList();
   }
 
-  Future<void> createNote(String content) async {
+  Future<void> createNote(String content, {bool isShared = false}) async {
     await _dio.post('/records/notes', data: {
       'content': content,
       'type': 'normal', // Default for now
       'color': 'yellow',
+      'visibility': _visibilityFromShared(isShared),
     });
+  }
+
+  Future<void> updateNote(
+    int id, {
+    required String content,
+    required bool isShared,
+  }) async {
+    await _dio.put('/records/notes/$id', data: {
+      'content': content,
+      'type': 'normal',
+      'visibility': _visibilityFromShared(isShared),
+    });
+  }
+
+  Future<void> deleteNote(int id) async {
+    await _dio.delete('/records/notes/$id');
   }
 
   Future<List<Wish>> getWishlist() async {
@@ -546,10 +674,15 @@ class ApiService {
         .toList();
   }
 
-  Future<void> addWish(String content, {String? priority}) async {
+  Future<void> addWish(
+    String content, {
+    String? priority,
+    bool isShared = false,
+  }) async {
     await _dio.post('/records/wishlist', data: {
       'content': content,
       if (priority != null) 'priority': priority,
+      'visibility': _visibilityFromShared(isShared),
     });
   }
 
@@ -561,10 +694,21 @@ class ApiService {
     await _dio.put('/records/wishlist/$id/incomplete');
   }
 
-  Future<void> updateWishPriority(int id, String priority) async {
-    await _dio.put('/records/wishlist/$id/priority', data: {
+  Future<void> updateWish(
+    int id, {
+    required String content,
+    required String priority,
+    required bool isShared,
+  }) async {
+    await _dio.put('/records/wishlist/$id', data: {
+      'content': content,
       'priority': priority,
+      'visibility': _visibilityFromShared(isShared),
     });
+  }
+
+  Future<void> deleteWish(int id) async {
+    await _dio.delete('/records/wishlist/$id');
   }
 }
 

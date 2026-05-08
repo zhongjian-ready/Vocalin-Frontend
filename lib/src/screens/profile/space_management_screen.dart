@@ -106,8 +106,7 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
           final canKickMembers = group?.myRole == 'owner';
           final shouldSelectSuccessorBeforeLeaving =
               canManageOwnership && group.members.length > 1;
-          final hasPendingApprovals =
-              joinRequestMessages.isNotEmpty || transferApprovalMessage != null;
+          final hasPendingApprovals = transferApprovalMessage != null;
 
           return Container(
             decoration: const BoxDecoration(
@@ -258,74 +257,35 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
                       _ActionCard(
                         icon: Icons.mark_email_unread_rounded,
                         title: 'Pending approvals',
-                        description:
-                            'Review join requests and ownership transfers from here.',
+                        description: 'Review ownership transfers from here.',
                         child: Column(
                           children: [
-                            if (transferApprovalMessage != null) ...[
-                              _PendingApprovalTile(
-                                title: 'Ownership transfer',
-                                description:
-                                    '${transferApprovalMessage.requesterNickname ?? 'The current owner'} wants to transfer ${group.name} to you.',
-                                actions: [
-                                  OutlinedButton(
-                                    onPressed: _isSubmitting
-                                        ? null
-                                        : () => _rejectOwnershipTransfer(
-                                              context,
-                                              group,
-                                              transferApprovalMessage,
-                                            ),
-                                    child: const Text('Reject'),
-                                  ),
-                                  FilledButton(
-                                    onPressed: _isSubmitting
-                                        ? null
-                                        : () => _acceptOwnershipTransfer(
-                                              context,
-                                              group,
-                                            ),
-                                    child: const Text('Approve'),
-                                  ),
-                                ],
-                              ),
-                              if (joinRequestMessages.isNotEmpty)
-                                const SizedBox(height: 12),
-                            ],
-                            for (var index = 0;
-                                index < joinRequestMessages.length;
-                                index++) ...[
-                              _PendingApprovalTile(
-                                title: joinRequestMessages[index]
-                                        .requesterNickname ??
-                                    'New member',
-                                description: 'Requested to join ${group.name}.',
-                                actions: [
-                                  OutlinedButton(
-                                    onPressed: _isSubmitting
-                                        ? null
-                                        : () => _rejectJoinRequest(
-                                              context,
-                                              group,
-                                              joinRequestMessages[index],
-                                            ),
-                                    child: const Text('Reject'),
-                                  ),
-                                  FilledButton(
-                                    onPressed: _isSubmitting
-                                        ? null
-                                        : () => _approveJoinRequest(
-                                              context,
-                                              group,
-                                              joinRequestMessages[index],
-                                            ),
-                                    child: const Text('Approve'),
-                                  ),
-                                ],
-                              ),
-                              if (index != joinRequestMessages.length - 1)
-                                const SizedBox(height: 12),
-                            ],
+                            _PendingApprovalTile(
+                              title: 'Ownership transfer',
+                              description:
+                                  '${transferApprovalMessage.requesterNickname ?? 'The current owner'} wants to transfer ${group.name} to you.',
+                              actions: [
+                                OutlinedButton(
+                                  onPressed: _isSubmitting
+                                      ? null
+                                      : () => _rejectOwnershipTransfer(
+                                            context,
+                                            group,
+                                            transferApprovalMessage,
+                                          ),
+                                  child: const Text('Reject'),
+                                ),
+                                FilledButton(
+                                  onPressed: _isSubmitting
+                                      ? null
+                                      : () => _acceptOwnershipTransfer(
+                                            context,
+                                            group,
+                                          ),
+                                  child: const Text('Approve'),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                       ),
@@ -376,25 +336,23 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
                     _ActionCard(
                       icon: Icons.people_alt_rounded,
                       title: 'Members',
-                      description: 'Current members in this space.',
+                      description: joinRequestMessages.isEmpty
+                          ? 'Current members in this space.'
+                          : 'Current members in this space, plus pending join requests.',
                       child: Column(
                         children: [
                           for (final member in group.members)
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: CircleAvatar(
-                                backgroundColor: const Color(0xFFFFE3C8),
-                                child: Text(
-                                    member.name.characters.first.toUpperCase()),
+                            _MemberEntryTile(
+                              avatarText:
+                                  member.name.characters.first.toUpperCase(),
+                              title: member.name,
+                              subtitle: _memberSubtitle(
+                                group: group,
+                                member: member,
+                                currentUserId: currentUserId,
                               ),
-                              title: Text(member.name),
-                              subtitle: Text(
-                                _memberSubtitle(
-                                  group: group,
-                                  member: member,
-                                  currentUserId: currentUserId,
-                                ),
-                              ),
+                              subtitleMaxLines: 1,
+                              overflowDialogTitle: member.name,
                               trailing: _buildMemberAction(
                                 context,
                                 group: group,
@@ -403,6 +361,27 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
                                 canKickMembers: canKickMembers,
                               ),
                             ),
+                          if (joinRequestMessages.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            for (final request in joinRequestMessages)
+                              _MemberEntryTile(
+                                avatarText: (request.requesterNickname ?? 'N')
+                                    .characters
+                                    .first
+                                    .toUpperCase(),
+                                title:
+                                    request.requesterNickname ?? 'New member',
+                                subtitle: 'Requested to join ${group.name}',
+                                subtitleMaxLines: 1,
+                                overflowDialogTitle:
+                                    request.requesterNickname ?? 'Join request',
+                                trailing: _buildJoinRequestAction(
+                                  context,
+                                  group: group,
+                                  message: request,
+                                ),
+                              ),
+                          ],
                         ],
                       ),
                     ),
@@ -1079,7 +1058,10 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
         currentUserId != null &&
         member.role == 'member' &&
         member.id != currentUserId) {
-      return TextButton.icon(
+      return _buildInlineActionButton(
+        label: 'Kick',
+        icon: Icons.person_remove,
+        color: const Color(0xFFD85A3D),
         onPressed: _isSubmitting
             ? null
             : () => _removeMember(
@@ -1087,15 +1069,66 @@ class _SpaceManagementScreenState extends State<SpaceManagementScreen> {
                   group,
                   member,
                 ),
-        icon: const Icon(Icons.person_remove),
-        label: const Text('Kick'),
-        style: TextButton.styleFrom(
-          foregroundColor: const Color(0xFFD85A3D),
-        ),
       );
     }
 
     return null;
+  }
+
+  Widget _buildJoinRequestAction(
+    BuildContext context, {
+    required Group group,
+    required SpaceInboxItem message,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildInlineActionButton(
+          label: 'Reject',
+          icon: Icons.person_remove,
+          color: const Color(0xFFD85A3D),
+          onPressed: _isSubmitting
+              ? null
+              : () => _rejectJoinRequest(
+                    context,
+                    group,
+                    message,
+                  ),
+        ),
+        const SizedBox(width: 4),
+        _buildInlineActionButton(
+          label: 'Approve',
+          icon: Icons.person_add_alt_1_rounded,
+          color: const Color(0xFFB56C37),
+          onPressed: _isSubmitting
+              ? null
+              : () => _approveJoinRequest(
+                    context,
+                    group,
+                    message,
+                  ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInlineActionButton({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback? onPressed,
+  }) {
+    return TextButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon),
+      label: Text(label),
+      style: TextButton.styleFrom(
+        foregroundColor: color,
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      ),
+    );
   }
 
   Future<void> _approveJoinRequest(
@@ -1519,6 +1552,139 @@ class _PendingApprovalTile extends StatelessWidget {
   }
 }
 
+class _MemberEntryTile extends StatelessWidget {
+  const _MemberEntryTile({
+    required this.avatarText,
+    required this.title,
+    required this.subtitle,
+    required this.subtitleMaxLines,
+    required this.overflowDialogTitle,
+    this.trailing,
+  });
+
+  final String avatarText;
+  final String title;
+  final String subtitle;
+  final int subtitleMaxLines;
+  final String overflowDialogTitle;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            backgroundColor: const Color(0xFFFFE3C8),
+            child: Text(avatarText),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (trailing != null) ...[
+                      const SizedBox(width: 12),
+                      trailing!,
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 4),
+                _ExpandableOverflowText(
+                  text: subtitle,
+                  maxLines: subtitleMaxLines,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFF5F5247),
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExpandableOverflowText extends StatelessWidget {
+  const _ExpandableOverflowText({
+    required this.text,
+    required this.maxLines,
+    this.style,
+  });
+
+  final String text;
+  final int maxLines;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textDirection = Directionality.of(context);
+        final painter = TextPainter(
+          text: TextSpan(text: text, style: style),
+          maxLines: maxLines,
+          textDirection: textDirection,
+        )..layout(maxWidth: constraints.maxWidth);
+
+        final hasOverflow = painter.didExceedMaxLines;
+        final textWidget = Text(
+          text,
+          maxLines: maxLines,
+          overflow: TextOverflow.ellipsis,
+          style: style,
+        );
+
+        if (!hasOverflow) {
+          return textWidget;
+        }
+        final tooltipMaxWidth = MediaQuery.sizeOf(context).width * 2 / 3;
+
+        return Tooltip(
+          message: text,
+          triggerMode: TooltipTriggerMode.tap,
+          waitDuration: Duration.zero,
+          showDuration: const Duration(seconds: 30),
+          preferBelow: false,
+          enableTapToDismiss: true,
+          decoration: BoxDecoration(
+            color: const Color(0xFF2F2F31),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          constraints: BoxConstraints(maxWidth: tooltipMaxWidth),
+          textStyle: style?.copyWith(color: Colors.white) ??
+              const TextStyle(color: Colors.white, height: 1.35),
+          textAlign: TextAlign.start,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: textWidget,
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _GroupListTile extends StatelessWidget {
   const _GroupListTile({
     required this.item,
@@ -1738,34 +1904,22 @@ class _SpaceSwitcherSheetState extends State<_SpaceSwitcherSheet> {
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Switch space',
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Switch to a joined group, join another with an invite code, or create a new group.',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: const Color(0xFF7D6B5D),
-                                height: 1.4,
-                              ),
-                            ),
-                          ],
+                      Text(
+                        'Switch space',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
-                      IconButton(
-                        onPressed: _isSubmitting
-                            ? null
-                            : () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close_rounded),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Switch to a joined group, join another with an invite code, or create a new group.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF7D6B5D),
+                          height: 1.4,
+                        ),
                       ),
                     ],
                   ),
