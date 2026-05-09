@@ -20,6 +20,51 @@ void main() {
       expect(post.updatedAt, DateTime(2026, 5, 8, 14, 38, 46, 64));
     });
 
+    test('Rich note payload parses title and plain-text summary', () {
+      final post = Post.fromNoteJson({
+        'ID': 11,
+        'content': encodeRichNoteContent(
+          title: 'Weekend Plan',
+          body: '# Big Day\n**Brunch** with _Alex_\n- Buy flowers',
+          summary: 'Big Day\nBrunch with Alex\nBuy flowers',
+          groupId: 9,
+        ),
+      });
+
+      expect(post.title, 'Weekend Plan');
+      expect(post.formattedContent,
+          '# Big Day\n**Brunch** with _Alex_\n- Buy flowers');
+      expect(post.content, 'Big Day\nBrunch with Alex\nBuy flowers');
+      expect(post.groupId, 9);
+    });
+
+    test('Plain note payload remains backward compatible', () {
+      final post = Post.fromNoteJson({
+        'ID': 12,
+        'content': 'Remember to water the plants',
+      });
+
+      expect(post.title, isNull);
+      expect(post.formattedContent, isNull);
+      expect(post.content, 'Remember to water the plants');
+    });
+
+    test('Post note owner fields parse from nested user payload', () {
+      final post = Post.fromNoteJson({
+        'ID': 13,
+        'content': 'Shared dinner list',
+        'is_shared': true,
+        'user': {
+          'nickname': 'Alex',
+          'avatar_url': 'https://example.com/alex.jpg',
+        },
+      });
+
+      expect(post.ownerNickname, 'Alex');
+      expect(post.ownerAvatarUrl, 'https://example.com/alex.jpg');
+      expect(post.isShared, isTrue);
+    });
+
     test('Post photo owner fields parse from nested user payload', () {
       final post = Post.fromPhotoJson({
         'ID': 8,

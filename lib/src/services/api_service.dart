@@ -642,25 +642,42 @@ class ApiService {
         .toList();
   }
 
-  Future<void> createNote(String content, {bool isShared = false}) async {
-    await _dio.post('/records/notes', data: {
-      'content': content,
-      'type': 'normal', // Default for now
-      'color': 'yellow',
-      'visibility': _visibilityFromShared(isShared),
-    });
+  Future<void> createNote(
+    String content, {
+    String? title,
+    bool isShared = false,
+    int? groupId,
+  }) async {
+    await _dio.post(
+      '/records/notes',
+      data: {
+        'content': content,
+        if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
+        if (groupId != null) 'group_id': groupId,
+        'type': 'normal',
+        'color': 'yellow',
+        'visibility': _visibilityFromShared(isShared),
+      },
+    );
   }
 
   Future<void> updateNote(
     int id, {
+    String? title,
     required String content,
     required bool isShared,
+    int? groupId,
   }) async {
-    await _dio.put('/records/notes/$id', data: {
-      'content': content,
-      'type': 'normal',
-      'visibility': _visibilityFromShared(isShared),
-    });
+    await _dio.put(
+      '/records/notes/$id',
+      data: {
+        'content': content,
+        if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
+        if (groupId != null) 'group_id': groupId,
+        'type': 'normal',
+        'visibility': _visibilityFromShared(isShared),
+      },
+    );
   }
 
   Future<void> deleteNote(int id) async {

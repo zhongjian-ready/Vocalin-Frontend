@@ -467,6 +467,64 @@ void main() {
       expect(apiService.lastDeletedAlbumId, isNull);
       expect(dataService.errorMessage, isNull);
     });
+
+    test('note folders are scoped locally and assignments can move back to all',
+        () async {
+      apiService.createdGroup = Group(
+        id: 5,
+        name: 'Warm Home',
+        inviteCode: 'ABCD12',
+        members: [
+          User(id: 7, nickname: 'Taylor', groupId: 5, role: 'member'),
+        ],
+      );
+
+      final completed = _waitForIdle(dataService);
+      dataService.syncAuthState(
+        User(id: 7, nickname: 'Taylor', groupId: 5, role: 'member'),
+      );
+      await completed;
+
+      dataService.createNoteFolder('Recipes');
+      dataService.moveNoteToFolder(12, 'Recipes');
+
+      expect(dataService.noteFoldersForCurrentGroup, contains('Recipes'));
+      expect(dataService.noteFolderNameFor(12), 'Recipes');
+
+      dataService.moveNoteToFolder(12, null);
+
+      expect(dataService.noteFolderNameFor(12), isNull);
+    });
+
+    test('shared notes from other users map to share folder label', () async {
+      apiService.createdGroup = Group(
+        id: 5,
+        name: 'Warm Home',
+        inviteCode: 'ABCD12',
+        members: [
+          User(id: 7, nickname: 'Taylor', groupId: 5, role: 'member'),
+        ],
+      );
+
+      final completed = _waitForIdle(dataService);
+      dataService.syncAuthState(
+        User(id: 7, nickname: 'Taylor', groupId: 5, role: 'member'),
+      );
+      await completed;
+
+      final sharedNote = Post(
+        id: 33,
+        type: PostType.note,
+        content: 'Shared shopping list',
+        ownerNickname: 'Alex',
+        isShared: true,
+        createdAt: DateTime(2026, 5, 9),
+        updatedAt: DateTime(2026, 5, 9),
+      );
+
+      expect(dataService.isSharedNoteFromOtherUser(sharedNote), isTrue);
+      expect(dataService.noteFolderLabelFor(sharedNote), 'Share');
+    });
   });
 }
 
@@ -705,7 +763,12 @@ class _FakeApiService extends ApiService {
   }
 
   @override
-  Future<void> createNote(String content, {bool isShared = false}) async {
+  Future<void> createNote(
+    String content, {
+    String? title,
+    bool isShared = false,
+    int? groupId,
+  }) async {
     lastCreatedNoteContent = content;
     lastCreatedNoteIsShared = isShared;
   }
@@ -713,8 +776,10 @@ class _FakeApiService extends ApiService {
   @override
   Future<void> updateNote(
     int id, {
+    String? title,
     required String content,
     required bool isShared,
+    int? groupId,
   }) async {
     lastUpdatedNoteId = id;
     lastUpdatedNoteContent = content;

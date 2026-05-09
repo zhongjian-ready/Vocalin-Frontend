@@ -4,117 +4,252 @@ import 'package:provider/provider.dart';
 
 import '../../../models/post.dart';
 import '../../../services/data_service.dart';
+import '../note_editor_page.dart';
 import '../record_delete_confirmation_dialog.dart';
 
-class NotesTab extends StatelessWidget {
+class NotesTab extends StatefulWidget {
   const NotesTab({super.key});
+
+  @override
+  State<NotesTab> createState() => _NotesTabState();
+}
+
+class _NotesTabState extends State<NotesTab> {
+  late final TextEditingController _searchController;
+  String _selectedFilterKey = _NoteFilterOption.allKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController()
+      ..addListener(() {
+        setState(() {});
+      });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<DataService>(
       builder: (context, dataService, child) {
-        final notes =
-            dataService.posts.where((p) => p.type == PostType.note).toList();
+        final notes = dataService.posts
+            .where((post) => post.type == PostType.note)
+            .toList();
+        final filterOptions = _buildFilterOptions(dataService, notes);
+        final activeFilter = filterOptions.any(
+          (option) => option.key == _selectedFilterKey,
+        )
+            ? _selectedFilterKey
+            : _NoteFilterOption.allKey;
+        final query = _searchController.text.trim().toLowerCase();
+        final filteredNotes = notes.where((note) {
+          final matchesFilter = switch (activeFilter) {
+            _NoteFilterOption.allKey => true,
+            _NoteFilterOption.shareKey =>
+              dataService.isSharedNoteFromOtherUser(note),
+            _ => activeFilter ==
+                'folder:${dataService.noteFolderNameFor(note.id)}',
+          };
+          if (!matchesFilter) {
+            return false;
+          }
+
+          if (query.isEmpty) {
+            return true;
+          }
+
+          final title = note.title?.toLowerCase() ?? '';
+          final content = note.content?.toLowerCase() ?? '';
+          return title.contains(query) || content.contains(query);
+        }).toList(growable: false);
 
         if (dataService.isLoading && notes.isEmpty) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (notes.isEmpty) {
-          return Stack(
-            children: [
-              const Center(child: Text('No notes yet. Leave a message!')),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 24,
-                child: SafeArea(
-                  top: false,
-                  minimum: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Center(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _showNoteDialog(
-                        context,
-                        dataService,
-                      ),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Add Note'),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          );
-        }
-
         return Stack(
           children: [
-            ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 112),
-              itemCount: notes.length,
-              itemBuilder: (context, index) {
-                final note = notes[index];
-                return Card(
-                  color: Colors.yellow[100],
-                  margin: const EdgeInsets.only(bottom: 16),
-                  clipBehavior: Clip.antiAlias,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () => _showNoteDialog(
-                      context,
-                      dataService,
-                      note: note,
-                    ),
-                    onLongPress: () => _confirmDeleteNote(
-                      context,
-                      dataService,
-                      note,
-                    ),
-                    child: Stack(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 20),
-                              Text(
-                                note.content ?? '',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontFamily: 'Cursive',
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Text(
-                                    DateFormat.yMMMd()
-                                        .add_jm()
-                                        .format(note.updatedAt),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
+            Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECE8E1),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: TextField(
+                          controller: _searchController,
+                          decoration: const InputDecoration(
+                            hintText: 'Search Notes',
+                            hintStyle: TextStyle(fontSize: 15),
+                            prefixIcon: Icon(Icons.search_rounded, size: 22),
+                            border: InputBorder.none,
+                            contentPadding: EdgeInsets.symmetric(vertical: 14),
+                            isDense: true,
                           ),
                         ),
-                        if (!note.isShared)
-                          Positioned(
-                            top: 0,
-                            left: 0,
-                            child: _NoteVisibilityCornerBadge(
-                              isShared: note.isShared,
+                      ),
+                      const SizedBox(height: 12),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (final option in filterOptions)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ChoiceChip(
+                                  selected: activeFilter == option.key,
+                                  avatar: activeFilter == option.key
+                                      ? const Icon(
+                                          Icons.check_rounded,
+                                          size: 16,
+                                        )
+                                      : null,
+                                  label: Text(option.label),
+                                  onSelected: (_) {
+                                    setState(() {
+                                      _selectedFilterKey = option.key;
+                                    });
+                                  },
+                                  selectedColor: const Color(0xFFE6E0D5),
+                                  backgroundColor: Colors.white,
+                                  labelStyle: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: activeFilter == option.key
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    side: BorderSide(
+                                      color: activeFilter == option.key
+                                          ? Colors.transparent
+                                          : const Color(0xFFD9CDBE),
+                                    ),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 9,
+                                  ),
+                                ),
+                              ),
+                            _AddFolderChip(
+                              onTap: () => _createFolder(context, dataService),
                             ),
-                          ),
-                      ],
-                    ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                );
-              },
+                ),
+                Expanded(
+                  child: filteredNotes.isEmpty
+                      ? Center(
+                          child: Text(
+                            notes.isEmpty
+                                ? 'No notes yet. Leave a message!'
+                                : 'No notes match this filter.',
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 112),
+                          itemCount: filteredNotes.length,
+                          itemBuilder: (context, index) {
+                            final note = filteredNotes[index];
+                            final folderLabel =
+                                dataService.noteFolderLabelFor(note);
+
+                            return Card(
+                              color: const Color(0xFFFFF6D9),
+                              margin: const EdgeInsets.only(bottom: 16),
+                              clipBehavior: Clip.antiAlias,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(22),
+                              ),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(22),
+                                onTap: () => _openNotePage(context, note: note),
+                                onLongPress: () => _confirmDeleteNote(
+                                  context,
+                                  dataService,
+                                  note,
+                                ),
+                                child: Stack(
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.all(18),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  note.title
+                                                              ?.trim()
+                                                              .isNotEmpty ==
+                                                          true
+                                                      ? note.title!.trim()
+                                                      : 'Untitled Note',
+                                                  style: const TextStyle(
+                                                    fontSize: 18,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ),
+                                              _FilterPill(label: folderLabel),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 10),
+                                          Text(
+                                            note.content ?? '',
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              height: 1.5,
+                                              color: Color(0xFF52473B),
+                                            ),
+                                            maxLines: 4,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Text(
+                                            DateFormat.yMMMd()
+                                                .add_jm()
+                                                .format(note.updatedAt),
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Color(0xFF8A8175),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (!note.isShared)
+                                      Positioned(
+                                        top: 0,
+                                        left: 0,
+                                        child: _NoteVisibilityCornerBadge(
+                                          isShared: note.isShared,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
             ),
             Positioned(
               left: 0,
@@ -125,7 +260,7 @@ class NotesTab extends StatelessWidget {
                 minimum: const EdgeInsets.symmetric(horizontal: 16),
                 child: Center(
                   child: ElevatedButton.icon(
-                    onPressed: () => _showNoteDialog(context, dataService),
+                    onPressed: () => _openNotePage(context),
                     icon: const Icon(Icons.add),
                     label: const Text('Add Note'),
                   ),
@@ -138,39 +273,93 @@ class NotesTab extends StatelessWidget {
     );
   }
 
-  Future<void> _showNoteDialog(
-    BuildContext context,
-    DataService dataService, {
-    Post? note,
-  }) async {
-    final result = await showDialog<_NoteFormResult>(
-      context: context,
-      builder: (context) => _NoteDialog(note: note),
-    );
+  List<_NoteFilterOption> _buildFilterOptions(
+    DataService dataService,
+    List<Post> notes,
+  ) {
+    final options = <_NoteFilterOption>[
+      const _NoteFilterOption(
+        key: _NoteFilterOption.allKey,
+        label: 'All',
+      ),
+    ];
 
-    if (result == null || result.content.isEmpty) {
-      return;
-    }
-
-    if (note == null) {
-      await dataService.addPost(
-        Post(
-          id: 0,
-          type: PostType.note,
-          content: result.content,
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-          color: 'yellow',
-          isShared: result.isShared,
+    if (notes.any(dataService.isSharedNoteFromOtherUser)) {
+      options.add(
+        const _NoteFilterOption(
+          key: _NoteFilterOption.shareKey,
+          label: 'Share',
         ),
       );
+    }
+
+    for (final folderName in dataService.noteFoldersForCurrentGroup) {
+      options.add(
+        _NoteFilterOption(
+          key: 'folder:$folderName',
+          label: folderName,
+        ),
+      );
+    }
+
+    return options;
+  }
+
+  Future<void> _createFolder(
+    BuildContext context,
+    DataService dataService,
+  ) async {
+    if (dataService.currentGroup == null) {
       return;
     }
 
-    await dataService.updateNote(
-      note.id,
-      content: result.content,
-      isShared: result.isShared,
+    final controller = TextEditingController();
+    final folderName = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('New Folder'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'Folder name',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(
+                controller.text.trim(),
+              ),
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+
+    final normalizedName = folderName?.trim();
+    if (normalizedName == null || normalizedName.isEmpty) {
+      return;
+    }
+
+    dataService.createNoteFolder(normalizedName);
+
+    setState(() {
+      _selectedFilterKey = 'folder:$normalizedName';
+    });
+  }
+
+  Future<void> _openNotePage(BuildContext context, {Post? note}) async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) => NoteEditorPage(note: note),
+      ),
     );
   }
 
@@ -192,127 +381,64 @@ class NotesTab extends StatelessWidget {
   }
 }
 
-class _NoteDialog extends StatefulWidget {
-  const _NoteDialog({this.note});
+class _NoteFilterOption {
+  const _NoteFilterOption({required this.key, required this.label});
 
-  final Post? note;
+  static const allKey = 'all';
+  static const shareKey = 'share';
 
-  @override
-  State<_NoteDialog> createState() => _NoteDialogState();
+  final String key;
+  final String label;
 }
 
-class _NoteDialogState extends State<_NoteDialog> {
-  late final TextEditingController _controller;
-  late bool _isShared;
+class _FilterPill extends StatelessWidget {
+  const _FilterPill({required this.label});
 
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.note?.content ?? '');
-    _isShared = widget.note?.isShared ?? false;
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  final String label;
 
   @override
   Widget build(BuildContext context) {
-    final isEditing = widget.note != null;
-
-    return AlertDialog(
-      title: Text(isEditing ? 'Edit Note' : 'New Note'),
-      content: SizedBox(
-        width: 360,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _controller,
-              minLines: 4,
-              maxLines: 8,
-              decoration: const InputDecoration(
-                hintText: 'Write something for yourself or your space...',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _VisibilitySelector(
-              value: _isShared,
-              onChanged: (value) {
-                setState(() {
-                  _isShared = value;
-                });
-              },
-            ),
-          ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 11,
+          color: Color(0xFF675B4F),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () {
-            final content = _controller.text.trim();
-            if (content.isEmpty) {
-              return;
-            }
-
-            Navigator.pop(
-              context,
-              _NoteFormResult(content: content, isShared: _isShared),
-            );
-          },
-          child: const Text('Save'),
-        ),
-      ],
     );
   }
 }
 
-class _VisibilitySelector extends StatelessWidget {
-  const _VisibilitySelector({
-    required this.value,
-    required this.onChanged,
-  });
+class _AddFolderChip extends StatelessWidget {
+  const _AddFolderChip({required this.onTap});
 
-  final bool value;
-  final ValueChanged<bool> onChanged;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Visibility',
-          style: Theme.of(context).textTheme.titleSmall,
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: const Icon(Icons.create_new_folder_outlined, size: 18),
+      label: const Text('New Folder'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFF6A594B),
+        backgroundColor: Colors.white,
+        side: const BorderSide(color: Color(0xFFD9CDBE)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
         ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            ChoiceChip(
-              selected: value == false,
-              avatar: const Icon(Icons.lock_outline, size: 18),
-              label: const Text('Private'),
-              onSelected: (_) => onChanged(false),
-            ),
-            ChoiceChip(
-              selected: value == true,
-              avatar: const Icon(Icons.groups_2_outlined, size: 18),
-              label: const Text('Public'),
-              onSelected: (_) => onChanged(true),
-            ),
-          ],
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        textStyle: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
         ),
-      ],
+      ),
     );
   }
 }
@@ -375,11 +501,4 @@ class _NoteVisibilityCornerBadge extends StatelessWidget {
       ),
     );
   }
-}
-
-class _NoteFormResult {
-  const _NoteFormResult({required this.content, required this.isShared});
-
-  final String content;
-  final bool isShared;
 }
