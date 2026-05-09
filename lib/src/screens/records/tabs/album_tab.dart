@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../../models/album.dart';
 import '../../../services/data_service.dart';
+import '../create_album_page.dart';
 import '../record_delete_confirmation_dialog.dart';
 import 'photo_download_helper.dart';
 
@@ -162,9 +163,10 @@ class AlbumTab extends StatelessWidget {
     BuildContext context,
     DataService dataService,
   ) async {
-    final result = await showDialog<_AlbumFormResult>(
-      context: context,
-      builder: (context) => const _AlbumDialog(),
+    final result = await Navigator.of(context).push<CreateAlbumResult>(
+      MaterialPageRoute<CreateAlbumResult>(
+        builder: (context) => const CreateAlbumPage(),
+      ),
     );
 
     if (result == null) {

@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vocalin/src/app.dart';
 import 'package:vocalin/src/models/album.dart';
 import 'package:vocalin/src/models/user.dart';
@@ -16,6 +17,7 @@ import 'package:vocalin/src/navigation/app_router.dart';
 import 'package:vocalin/src/navigation/app_routes.dart';
 import 'package:vocalin/src/screens/auth/auth_screen.dart';
 import 'package:vocalin/src/screens/profile/profile_screen.dart';
+import 'package:vocalin/src/screens/records/create_album_page.dart';
 import 'package:vocalin/src/screens/records/tabs/album_tab.dart';
 import 'package:vocalin/src/services/auth_service.dart';
 import 'package:vocalin/src/services/data_service.dart';
@@ -24,6 +26,10 @@ void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
     await dotenv.load(fileName: '.env');
+  });
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
   });
 
   testWidgets('App smoke test', (WidgetTester tester) async {
@@ -204,6 +210,96 @@ void main() {
 
     expect(find.text('Weekend vibes'), findsWidgets);
     expect(find.text('Sunset by the water'), findsNothing);
+  });
+
+  testWidgets('Create album opens the dedicated editor page', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      ChangeNotifierProvider<DataService>.value(
+        value: _FakeAlbumDataService(const []),
+        child: const MaterialApp(home: Scaffold(body: AlbumTab())),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Create Album'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Add title'), findsOneWidget);
+    expect(find.text('Add text or description'), findsOneWidget);
+    expect(find.text('Save Draft'), findsOneWidget);
+    expect(find.text('Publish'), findsOneWidget);
+  });
+
+  testWidgets('Create album publish confirmation defaults to public', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'records.create_album_draft':
+          '{"title":"家庭相册","description":"周末记录","photos":[{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sot7mwAAAAASUVORK5CYII=","source":"library"}]}'
+    });
+
+    CreateAlbumResult? publishResult;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) {
+              return ElevatedButton(
+                onPressed: () async {
+                  publishResult = await Navigator.of(context).push(
+                    MaterialPageRoute<CreateAlbumResult>(
+                      builder: (context) => const CreateAlbumPage(),
+                    ),
+                  );
+                },
+                child: const Text('Open Create Album'),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open Create Album'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Added 1/9 photos'), findsOneWidget);
+
+    await tester.tap(find.text('Publish'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Confirm Visibility'), findsOneWidget);
+    expect(find.text('Public'), findsOneWidget);
+    expect(find.text('Private'), findsOneWidget);
+
+    await tester.tap(find.text('Confirm Publish'));
+    await tester.pumpAndSettle();
+
+    expect(publishResult, isNotNull);
+    expect(publishResult!.isShared, isTrue);
+  });
+
+  testWidgets('Create album hides the add tile after reaching 9 photos', (
+    WidgetTester tester,
+  ) async {
+    const photoJson =
+        '{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sot7mwAAAAASUVORK5CYII=","source":"library"}';
+    SharedPreferences.setMockInitialValues({
+      'records.create_album_draft':
+          '{"title":"Album","description":"Desc","photos":[$photoJson,$photoJson,$photoJson,$photoJson,$photoJson,$photoJson,$photoJson,$photoJson,$photoJson]}'
+    });
+
+    await tester.pumpWidget(
+      const MaterialApp(home: CreateAlbumPage()),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Added 9/9 photos'), findsOneWidget);
+    expect(find.byIcon(Icons.add), findsNothing);
   });
 }
 
