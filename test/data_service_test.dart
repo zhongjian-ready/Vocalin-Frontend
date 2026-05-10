@@ -6,6 +6,7 @@ import 'package:vocalin/src/models/album.dart';
 import 'package:vocalin/src/models/group.dart';
 import 'package:vocalin/src/models/group_action_result.dart';
 import 'package:vocalin/src/models/group_list_item.dart';
+import 'package:vocalin/src/models/note_folder.dart';
 import 'package:vocalin/src/models/post.dart';
 import 'package:vocalin/src/models/space_inbox_item.dart';
 import 'package:vocalin/src/models/user.dart';
@@ -445,6 +446,16 @@ void main() {
       expect(dataService.errorMessage, isNull);
     });
 
+    test('updateNoteVisibility forwards dedicated visibility mutation',
+        () async {
+      await dataService.updateNoteVisibility(7, isShared: true);
+
+      expect(apiService.lastVisibilityUpdatedNoteId, 7);
+      expect(apiService.lastVisibilityUpdatedIsShared, isTrue);
+      expect(apiService.lastUpdatedNoteId, isNull);
+      expect(dataService.errorMessage, isNull);
+    });
+
     test('deleteWish forwards id to api', () async {
       await dataService.deleteWish(21);
 
@@ -468,7 +479,7 @@ void main() {
       expect(dataService.errorMessage, isNull);
     });
 
-    test('note folders are scoped locally and assignments can move back to all',
+    test('note folders load from api and note assignments can move back to all',
         () async {
       apiService.createdGroup = Group(
         id: 5,
@@ -478,6 +489,16 @@ void main() {
           User(id: 7, nickname: 'Taylor', groupId: 5, role: 'member'),
         ],
       );
+      apiService.notes = [
+        Post(
+          id: 12,
+          type: PostType.note,
+          content: 'Soup ideas',
+          ownerNickname: 'Taylor',
+          createdAt: DateTime(2026, 5, 10, 10),
+          updatedAt: DateTime(2026, 5, 10, 10),
+        ),
+      ];
 
       final completed = _waitForIdle(dataService);
       dataService.syncAuthState(
@@ -485,13 +506,15 @@ void main() {
       );
       await completed;
 
-      dataService.createNoteFolder('Recipes');
-      dataService.moveNoteToFolder(12, 'Recipes');
+      await dataService.createNoteFolder('Recipes');
 
       expect(dataService.noteFoldersForCurrentGroup, contains('Recipes'));
+
+      await dataService.moveNoteToFolder(12, 'Recipes');
+
       expect(dataService.noteFolderNameFor(12), 'Recipes');
 
-      dataService.moveNoteToFolder(12, null);
+      await dataService.moveNoteToFolder(12, null);
 
       expect(dataService.noteFolderNameFor(12), isNull);
     });
@@ -555,6 +578,8 @@ class _FakeApiService extends ApiService {
   GroupListData groupListData = const GroupListData(
       currentGroupId: null, groups: [], pendingRequests: []);
   List<SpaceInboxItem> homeMessages = const [];
+  List<Post> notes = const [];
+  List<NoteFolder> noteFolders = const [];
   String? lastCreatedGroupName;
   String? lastInviteCode;
   String? lastWishContent;
@@ -576,7 +601,13 @@ class _FakeApiService extends ApiService {
   int? lastUpdatedNoteId;
   String? lastUpdatedNoteContent;
   bool? lastUpdatedNoteIsShared;
+  int? lastVisibilityUpdatedNoteId;
+  bool? lastVisibilityUpdatedIsShared;
   int? lastDeletedNoteId;
+  String? lastCreatedNoteFolderName;
+  int? lastDeletedNoteFolderId;
+  int? lastMovedNoteId;
+  int? lastMovedFolderId;
   int? lastDeletedPhotoId;
   String? lastCreatedNoteContent;
   bool? lastCreatedNoteIsShared;
@@ -720,7 +751,10 @@ class _FakeApiService extends ApiService {
   Future<List<Album>> getAlbums() async => const [];
 
   @override
-  Future<List<Post>> getNotes() async => const [];
+  Future<List<Post>> getNotes() async => notes;
+
+  @override
+  Future<List<NoteFolder>> getNoteFolders() async => noteFolders;
 
   @override
   Future<List<Wish>> getWishlist() async => const [];
@@ -768,6 +802,7 @@ class _FakeApiService extends ApiService {
     String? title,
     bool isShared = false,
     int? groupId,
+    int? folderId,
   }) async {
     lastCreatedNoteContent = content;
     lastCreatedNoteIsShared = isShared;
@@ -780,6 +815,7 @@ class _FakeApiService extends ApiService {
     required String content,
     required bool isShared,
     int? groupId,
+    int? folderId,
   }) async {
     lastUpdatedNoteId = id;
     lastUpdatedNoteContent = content;
@@ -789,6 +825,95 @@ class _FakeApiService extends ApiService {
   @override
   Future<void> deleteNote(int id) async {
     lastDeletedNoteId = id;
+  }
+
+  @override
+  Future<void> updateNoteVisibility(int id, {required bool isShared}) async {
+    lastVisibilityUpdatedNoteId = id;
+    lastVisibilityUpdatedIsShared = isShared;
+  }
+
+  @override
+  Future<void> createNoteFolder(String name) async {
+    lastCreatedNoteFolderName = name;
+    final nextId = noteFolders.isEmpty
+        ? 1
+        : noteFolders
+                .map((folder) => folder.id)
+                .reduce((current, next) => current > next ? current : next) +
+            1;
+    noteFolders = [
+      ...noteFolders,
+      NoteFolder(
+        id: nextId,
+        name: name,
+        type: 'custom',
+        editable: true,
+        deletable: true,
+      ),
+    ];
+  }
+
+  @override
+  Future<void> deleteNoteFolder(int id) async {
+    lastDeletedNoteFolderId = id;
+    noteFolders = noteFolders.where((folder) => folder.id != id).toList();
+    notes = notes.map((note) {
+      if (note.folderId != id) {
+        return note;
+      }
+
+      return Post(
+        id: note.id,
+        type: note.type,
+        title: note.title,
+        content: note.content,
+        formattedContent: note.formattedContent,
+        imageUrl: note.imageUrl,
+        ownerNickname: note.ownerNickname,
+        ownerAvatarUrl: note.ownerAvatarUrl,
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+        color: note.color,
+        isBurned: note.isBurned,
+        isShared: note.isShared,
+        groupId: note.groupId,
+      );
+    }).toList(growable: false);
+  }
+
+  @override
+  Future<void> moveNoteToFolder(int id, {int? folderId}) async {
+    lastMovedNoteId = id;
+    lastMovedFolderId = folderId;
+    final folder = folderId == null
+        ? null
+        : noteFolders.where((item) => item.id == folderId).firstOrNull;
+    notes = notes.map((note) {
+      if (note.id != id) {
+        return note;
+      }
+
+      return Post(
+        id: note.id,
+        type: note.type,
+        title: note.title,
+        content: note.content,
+        formattedContent: note.formattedContent,
+        imageUrl: note.imageUrl,
+        ownerNickname: note.ownerNickname,
+        ownerAvatarUrl: note.ownerAvatarUrl,
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+        color: note.color,
+        isBurned: note.isBurned,
+        isShared: note.isShared,
+        groupId: note.groupId,
+        folderId: folderId,
+        folderName: folder?.name,
+        folderType: folder?.type,
+      );
+    }).toList(growable: false);
   }
 
   @override

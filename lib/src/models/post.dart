@@ -233,6 +233,9 @@ class Post {
   final bool isBurned; // For notes
   final bool isShared; // For notes
   final int? groupId;
+  final int? folderId;
+  final String? folderName;
+  final String? folderType;
 
   Post({
     required this.id,
@@ -249,6 +252,9 @@ class Post {
     this.isBurned = false,
     this.isShared = false,
     this.groupId,
+    this.folderId,
+    this.folderName,
+    this.folderType,
   }) : updatedAt = updatedAt ?? createdAt;
 
   factory Post.fromPhotoJson(Map<String, dynamic> json) {
@@ -323,6 +329,16 @@ class Post {
       groupId:
           (json['group_id'] ?? json['groupId'] ?? json['GroupId']) as int? ??
               _parseRichNoteGroupId(json),
+      folderId:
+          (json['folder_id'] ?? json['folderId'] ?? json['FolderId']) as int?,
+      folderName: _firstNonEmptyString([
+        json['folder_name'],
+        json['folderName'],
+      ]),
+      folderType: _firstNonEmptyString([
+        json['folder_type'],
+        json['folderType'],
+      ]),
       createdAt: _parseDateTime(
             json['createdAt'] ?? json['created_at'] ?? json['CreatedAt'],
           ) ??
@@ -354,6 +370,9 @@ class Post {
     bool? isBurned,
     bool? isShared,
     int? groupId,
+    int? folderId,
+    String? folderName,
+    String? folderType,
   }) {
     return Post(
       id: id ?? this.id,
@@ -370,6 +389,9 @@ class Post {
       isBurned: isBurned ?? this.isBurned,
       isShared: isShared ?? this.isShared,
       groupId: groupId ?? this.groupId,
+      folderId: folderId ?? this.folderId,
+      folderName: folderName ?? this.folderName,
+      folderType: folderType ?? this.folderType,
     );
   }
 }

@@ -7,6 +7,7 @@ import '../models/album.dart';
 import '../models/group.dart';
 import '../models/group_action_result.dart';
 import '../models/group_list_item.dart';
+import '../models/note_folder.dart';
 import '../models/post.dart';
 import '../models/space_inbox_item.dart';
 import '../models/user.dart';
@@ -26,8 +27,7 @@ class DataService extends ChangeNotifier {
   List<Album> _albums = [];
   List<Post> _posts = [];
   List<Wish> _wishes = [];
-  final Map<int, List<String>> _noteFoldersByGroup = {};
-  final Map<int, Map<int, String>> _noteFolderAssignmentsByGroup = {};
+  List<NoteFolder> _noteFolders = [];
   bool _isLoading = false;
   bool _hasLoadedRemoteData = false;
 
@@ -38,8 +38,12 @@ class DataService extends ChangeNotifier {
   List<Album> get albums => _albums;
   List<Post> get posts => _posts;
   List<Wish> get wishes => _wishes;
+  List<NoteFolder> get noteFolders => List.unmodifiable(_noteFolders);
   List<String> get noteFoldersForCurrentGroup => List.unmodifiable(
-        _noteFoldersByGroup[_activeNoteFolderScopeId] ?? const <String>[],
+        _noteFolders
+            .where((folder) => folder.isCustom)
+            .map((folder) => folder.name)
+            .toList(growable: false),
       );
   bool get isLoading => _isLoading;
   bool get hasJoinedGroup => _currentGroup != null;
@@ -109,6 +113,7 @@ class DataService extends ChangeNotifier {
         _albums = [];
         _posts = [];
         _wishes = [];
+        _noteFolders = [];
         _hasLoadedRemoteData = true;
         return;
       }
@@ -117,11 +122,13 @@ class DataService extends ChangeNotifier {
         _api.getAlbums(),
         _api.getNotes(),
         _api.getWishlist(),
+        _api.getNoteFolders(),
       ]);
 
       final albums = results[0] as List<Album>;
       final notes = results[1] as List<Post>;
       final wishes = results[2] as List<Wish>;
+      final noteFolders = results[3] as List<NoteFolder>;
 
       _currentGroup = group;
       _albums = [...albums]
@@ -129,6 +136,7 @@ class DataService extends ChangeNotifier {
       _posts = [...albums.map(Post.fromAlbumActivity), ...notes]
         ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
       _wishes = wishes;
+      _noteFolders = noteFolders;
       _currentUser = _resolveCurrentUserFromGroup(group) ?? _currentUser;
       _hasLoadedRemoteData = true;
     } on DioException catch (error) {
@@ -402,49 +410,86 @@ class DataService extends ChangeNotifier {
   Future<void> deleteNote(int noteId) async {
     await _runMutation(() async {
       await _api.deleteNote(noteId);
-      _noteFolderAssignmentsByGroup[_activeNoteFolderScopeId]?.remove(noteId);
       await refreshData();
     });
   }
 
-  void createNoteFolder(String name) {
+  Future<void> updateNoteVisibility(int noteId,
+      {required bool isShared}) async {
+    await _runMutation(() async {
+      await _api.updateNoteVisibility(noteId, isShared: isShared);
+      await refreshData();
+    });
+  }
+
+  Future<void> createNoteFolder(String name) async {
     final normalizedName = name.trim();
     if (normalizedName.isEmpty) {
       return;
     }
 
-    final scopeId = _activeNoteFolderScopeId;
-    final existingFolders = _noteFoldersByGroup[scopeId] ?? const <String>[];
-    final hasDuplicate = existingFolders.any(
-      (folder) => folder.toLowerCase() == normalizedName.toLowerCase(),
+    final hasDuplicate = _noteFolders.any(
+      (folder) =>
+          folder.isCustom &&
+          folder.name.toLowerCase() == normalizedName.toLowerCase(),
     );
     if (hasDuplicate) {
       return;
     }
 
-    _noteFoldersByGroup[scopeId] = [...existingFolders, normalizedName];
-    notifyListeners();
+    await _runMutation(() async {
+      await _api.createNoteFolder(normalizedName);
+      await refreshData();
+    });
   }
 
-  void moveNoteToFolder(int noteId, String? folderName) {
-    final scopeId = _activeNoteFolderScopeId;
-    final normalizedName = folderName?.trim();
-    final assignments = {
-      ...?_noteFolderAssignmentsByGroup[scopeId],
-    };
+  Future<void> deleteNoteFolder(int folderId) async {
+    await _runMutation(() async {
+      await _api.deleteNoteFolder(folderId);
+      await refreshData();
+    });
+  }
 
-    if (normalizedName == null || normalizedName.isEmpty) {
-      assignments.remove(noteId);
-    } else {
-      assignments[noteId] = normalizedName;
+  Future<void> moveNoteToFolder(int noteId, String? folderName) async {
+    final normalizedName = folderName?.trim();
+    final folderId = normalizedName == null || normalizedName.isEmpty
+        ? null
+        : _noteFolders
+            .where(
+              (folder) =>
+                  folder.isCustom &&
+                  folder.name.toLowerCase() == normalizedName.toLowerCase(),
+            )
+            .firstOrNull
+            ?.id;
+
+    await _runMutation(() async {
+      await _api.moveNoteToFolder(noteId, folderId: folderId);
+      await refreshData();
+    });
+  }
+
+  NoteFolder? noteFolderForName(String name) {
+    final normalizedName = name.trim().toLowerCase();
+    if (normalizedName.isEmpty) {
+      return null;
     }
 
-    _noteFolderAssignmentsByGroup[scopeId] = assignments;
-    notifyListeners();
+    return _noteFolders
+        .where((folder) => folder.name.toLowerCase() == normalizedName)
+        .firstOrNull;
   }
 
   String? noteFolderNameFor(int noteId) {
-    return _noteFolderAssignmentsByGroup[_activeNoteFolderScopeId]?[noteId];
+    final note = _posts
+        .where((post) => post.type == PostType.note && post.id == noteId)
+        .firstOrNull;
+    final folderName = note?.folderName?.trim();
+    if (folderName == null || folderName.isEmpty) {
+      return null;
+    }
+
+    return folderName;
   }
 
   bool isSharedNoteFromOtherUser(Post note) {
@@ -470,7 +515,12 @@ class DataService extends ChangeNotifier {
       return 'Share';
     }
 
-    return noteFolderNameFor(note.id) ?? 'All';
+    final folderName = note.folderName?.trim();
+    if (folderName == null || folderName.isEmpty) {
+      return 'All';
+    }
+
+    return folderName;
   }
 
   Future<void> toggleWish(int wishId) async {
@@ -768,14 +818,10 @@ class DataService extends ChangeNotifier {
     _albums = [];
     _posts = [];
     _wishes = [];
-    _noteFoldersByGroup.clear();
-    _noteFolderAssignmentsByGroup.clear();
+    _noteFolders = [];
     _isLoading = false;
     _hasLoadedRemoteData = false;
   }
-
-  int get _activeNoteFolderScopeId =>
-      _currentGroup?.id ?? _currentUser?.groupId ?? 0;
 
   void _applyGroup(Group group) {
     _currentGroup = group;

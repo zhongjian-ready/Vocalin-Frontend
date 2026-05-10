@@ -6,6 +6,7 @@ import '../models/album.dart';
 import '../models/group.dart';
 import '../models/group_action_result.dart';
 import '../models/group_list_item.dart';
+import '../models/note_folder.dart';
 import '../models/post.dart';
 import '../models/space_inbox_item.dart';
 import '../models/user.dart';
@@ -542,7 +543,7 @@ class ApiService {
   }) async {
     final normalizedPhotos = photos
         .where((photo) => photo.url.trim().isNotEmpty)
-        .map((photo) => photo.toJson())
+        .map((photo) => {'url': photo.url.trim()})
         .toList();
 
     await _dio.post('/records/albums', data: {
@@ -563,7 +564,7 @@ class ApiService {
   }) async {
     final normalizedPhotos = photos
         .where((photo) => photo.url.trim().isNotEmpty)
-        .map((photo) => photo.toJson())
+        .map((photo) => {'url': photo.url.trim()})
         .toList();
 
     await _dio.put('/records/albums/$id', data: {
@@ -642,18 +643,37 @@ class ApiService {
         .toList();
   }
 
+  Future<List<NoteFolder>> getNoteFolders() async {
+    final response = await _dio.get('/records/note-folders');
+    return _extractResponseDataList(response.data)
+        .map((item) => NoteFolder.fromJson(_asMap(item)))
+        .where((folder) => folder.name.isNotEmpty)
+        .toList();
+  }
+
+  Future<void> createNoteFolder(String name) async {
+    await _dio.post(
+      '/records/note-folders',
+      data: {'name': name.trim()},
+    );
+  }
+
+  Future<void> deleteNoteFolder(int id) async {
+    await _dio.delete('/records/note-folders/$id');
+  }
+
   Future<void> createNote(
     String content, {
     String? title,
     bool isShared = false,
     int? groupId,
+    int? folderId,
   }) async {
     await _dio.post(
       '/records/notes',
       data: {
         'content': content,
-        if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
-        if (groupId != null) 'group_id': groupId,
+        if (folderId != null) 'folder_id': folderId,
         'type': 'normal',
         'color': 'yellow',
         'visibility': _visibilityFromShared(isShared),
@@ -667,14 +687,15 @@ class ApiService {
     required String content,
     required bool isShared,
     int? groupId,
+    int? folderId,
   }) async {
     await _dio.put(
       '/records/notes/$id',
       data: {
         'content': content,
-        if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
-        if (groupId != null) 'group_id': groupId,
+        if (folderId != null) 'folder_id': folderId,
         'type': 'normal',
+        'color': 'yellow',
         'visibility': _visibilityFromShared(isShared),
       },
     );
@@ -682,6 +703,24 @@ class ApiService {
 
   Future<void> deleteNote(int id) async {
     await _dio.delete('/records/notes/$id');
+  }
+
+  Future<void> updateNoteVisibility(int id, {required bool isShared}) async {
+    await _dio.put(
+      '/records/notes/$id/visibility',
+      data: {
+        'visibility': _visibilityFromShared(isShared),
+      },
+    );
+  }
+
+  Future<void> moveNoteToFolder(int id, {int? folderId}) async {
+    await _dio.put(
+      '/records/notes/$id/folder',
+      data: {
+        if (folderId != null) 'folder_id': folderId,
+      },
+    );
   }
 
   Future<List<Wish>> getWishlist() async {

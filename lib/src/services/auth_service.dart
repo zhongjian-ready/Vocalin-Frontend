@@ -132,7 +132,6 @@ class AuthService extends ChangeNotifier {
       if (refreshToken != null && refreshToken.isNotEmpty) {
         await _api.logout(refreshToken: refreshToken);
       }
-    } on DioException {
     } finally {
       await _clearSession();
     }

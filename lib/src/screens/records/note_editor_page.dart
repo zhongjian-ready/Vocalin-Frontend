@@ -37,6 +37,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   late final FocusNode _editorFocusNode;
   DocumentSelection? _lastDocumentSelection;
   final List<_NoteEditorSnapshot> _history = [];
+  late _NoteEditorSnapshot _savedSnapshot;
   late bool _isShared;
   late bool _isEditing;
   int? _selectedGroupId;
@@ -136,6 +137,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     _isShared = widget.note?.isShared ?? true;
     _isEditing = widget.startInEditMode ?? widget.note == null;
     _recordHistorySnapshot(force: true);
+    _savedSnapshot = _createHistorySnapshot();
   }
 
   @override
@@ -164,6 +166,9 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
 
   bool get _canRedo =>
       _historyIndex >= 0 && _historyIndex < _history.length - 1;
+
+  bool get _hasUnsavedChanges =>
+      !_savedSnapshot.hasSamePersistedContent(_createHistorySnapshot());
 
   void _handleDocumentChanged() {
     final previousNodeIds = List<String>.from(_knownDocumentNodeIds);
@@ -782,12 +787,19 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     });
   }
 
-  Future<void> _save() async {
+  void _markCurrentStateAsSaved() {
+    _savedSnapshot = _createHistorySnapshot();
+  }
+
+  Future<bool> _persistCurrentNote({
+    bool popAfterSave = false,
+    bool showSavedMessage = true,
+  }) async {
     final title = _titleController.text.trim();
     final serializedDocument = _serializeDocument();
     final summary = _plainTextSummary();
     if (title.isEmpty || summary.isEmpty) {
-      return;
+      return false;
     }
 
     setState(() {
@@ -819,11 +831,12 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
             );
 
         if (!mounted) {
-          return;
+          return true;
         }
 
+        _markCurrentStateAsSaved();
         Navigator.of(context).pop(true);
-        return;
+        return true;
       }
 
       await context.read<DataService>().updateNote(
@@ -835,15 +848,27 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
           );
 
       if (!mounted) {
-        return;
+        return true;
+      }
+
+      _markCurrentStateAsSaved();
+
+      if (popAfterSave) {
+        Navigator.of(context).pop(true);
+        return true;
       }
 
       setState(() {
         _isEditing = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Note saved.')),
-      );
+
+      if (showSavedMessage) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Note saved.')),
+        );
+      }
+
+      return true;
     } finally {
       if (mounted) {
         setState(() {
@@ -853,49 +878,55 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     }
   }
 
-  Future<void> _updateExistingNote({bool showSavedMessage = false}) async {
-    if (widget.note == null || _isSubmitting) {
-      return;
+  Future<void> _save() async {
+    await _persistCurrentNote();
+  }
+
+  Future<bool> _handleBackNavigation() async {
+    if (_isSubmitting) {
+      return false;
     }
 
-    final title = _titleController.text.trim();
-    final serializedDocument = _serializeDocument();
-    final summary = _plainTextSummary();
-    if (title.isEmpty || summary.isEmpty) {
-      return;
+    if (!_hasUnsavedChanges) {
+      return true;
     }
 
-    setState(() {
-      _isSubmitting = true;
-    });
-
-    try {
-      await context.read<DataService>().updateNote(
-            widget.note!.id,
-            title: title,
-            content: encodeRichNoteContent(
-              title: title,
-              body: serializedDocument,
-              summary: summary,
-              groupId: _selectedGroupId,
+    final action = await showDialog<_PendingNoteAction>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Save changes?'),
+          content: const Text(
+            'This note has unsaved changes. Save before leaving?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_PendingNoteAction.discard),
+              child: const Text('Discard'),
             ),
-            isShared: _isShared,
-            groupId: _selectedGroupId,
-          );
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_PendingNoteAction.save),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
 
-      if (!mounted || !showSavedMessage) {
-        return;
-      }
+    if (!mounted) {
+      return false;
+    }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Note updated.')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
-      }
+    switch (action) {
+      case _PendingNoteAction.save:
+        await _persistCurrentNote(popAfterSave: true, showSavedMessage: false);
+        return false;
+      case _PendingNoteAction.discard:
+        return true;
+      case null:
+        return false;
     }
   }
 
@@ -904,11 +935,25 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       return;
     }
 
+    final nextIsShared = !_isShared;
+
     setState(() {
-      _isShared = !_isShared;
+      _isShared = nextIsShared;
+      _isSubmitting = true;
     });
 
-    await _updateExistingNote();
+    try {
+      await context.read<DataService>().updateNoteVisibility(
+            widget.note!.id,
+            isShared: nextIsShared,
+          );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
+    }
   }
 
   Future<void> _moveToFolder() async {
@@ -957,7 +1002,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       return;
     }
 
-    dataService.moveNoteToFolder(widget.note!.id, selectedFolder);
+    await dataService.moveNoteToFolder(widget.note!.id, selectedFolder);
 
     if (!mounted) {
       return;
@@ -1542,253 +1587,260 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         final updatedAt = widget.note?.updatedAt ?? DateTime.now();
         final canMoveToFolder = widget.note != null &&
             !dataService.isSharedNoteFromOtherUser(widget.note!);
-        return Scaffold(
-          backgroundColor: const Color(0xFFF7F3EC),
-          appBar: AppBar(
+        return WillPopScope(
+          onWillPop: _handleBackNavigation,
+          child: Scaffold(
             backgroundColor: const Color(0xFFF7F3EC),
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            actions: [
-              if (_isEditing) ...[
-                IconButton(
-                  onPressed: _canUndo ? _undo : null,
-                  tooltip: 'Undo',
-                  icon: const Icon(Icons.undo_rounded),
-                ),
-                IconButton(
-                  onPressed: _canRedo ? _redo : null,
-                  tooltip: 'Redo',
-                  icon: const Icon(Icons.redo_rounded),
+            appBar: AppBar(
+              backgroundColor: const Color(0xFFF7F3EC),
+              elevation: 0,
+              scrolledUnderElevation: 0,
+              actions: [
+                if (_isEditing) ...[
+                  IconButton(
+                    onPressed: _canUndo ? _undo : null,
+                    tooltip: 'Undo',
+                    icon: const Icon(Icons.undo_rounded),
+                  ),
+                  IconButton(
+                    onPressed: _canRedo ? _redo : null,
+                    tooltip: 'Redo',
+                    icon: const Icon(Icons.redo_rounded),
+                  ),
+                ],
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: SizedBox.square(
+                    dimension: 48,
+                    child: _isEditing
+                        ? IconButton(
+                            onPressed: _isSubmitting ? null : _save,
+                            tooltip: 'Save',
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 48,
+                              height: 48,
+                            ),
+                            icon: const Icon(Icons.check_rounded),
+                          )
+                        : PopupMenuButton<_NoteMenuAction>(
+                            padding: EdgeInsets.zero,
+                            icon: const Icon(Icons.more_horiz_rounded),
+                            tooltip: 'More',
+                            onSelected: (value) async {
+                              switch (value) {
+                                case _NoteMenuAction.toggleVisibility:
+                                  await _toggleVisibility();
+                                  break;
+                                case _NoteMenuAction.moveTo:
+                                  await _moveToFolder();
+                                  break;
+                                case _NoteMenuAction.delete:
+                                  await _deleteNote();
+                                  break;
+                              }
+                            },
+                            itemBuilder: (context) {
+                              return [
+                                PopupMenuItem<_NoteMenuAction>(
+                                  value: _NoteMenuAction.toggleVisibility,
+                                  child: Text(
+                                    _isShared
+                                        ? 'Set to Private'
+                                        : 'Set to Public',
+                                  ),
+                                ),
+                                if (canMoveToFolder)
+                                  const PopupMenuItem<_NoteMenuAction>(
+                                    value: _NoteMenuAction.moveTo,
+                                    child: Text('Move To'),
+                                  ),
+                                const PopupMenuItem<_NoteMenuAction>(
+                                  value: _NoteMenuAction.delete,
+                                  child: Text('Delete'),
+                                ),
+                              ];
+                            },
+                          ),
+                  ),
                 ),
               ],
-              Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: SizedBox.square(
-                  dimension: 48,
-                  child: _isEditing
-                      ? IconButton(
-                          onPressed: _isSubmitting ? null : _save,
-                          tooltip: 'Save',
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(
-                            width: 48,
-                            height: 48,
+            ),
+            body: SafeArea(
+              top: false,
+              child: Stack(
+                children: [
+                  _isEditing
+                      ? Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            24,
+                            8,
+                            24,
+                            _isToolbarExpanded ? 160 : 120,
                           ),
-                          icon: const Icon(Icons.check_rounded),
-                        )
-                      : PopupMenuButton<_NoteMenuAction>(
-                          padding: EdgeInsets.zero,
-                          icon: const Icon(Icons.more_horiz_rounded),
-                          tooltip: 'More',
-                          onSelected: (value) async {
-                            switch (value) {
-                              case _NoteMenuAction.toggleVisibility:
-                                await _toggleVisibility();
-                                break;
-                              case _NoteMenuAction.moveTo:
-                                await _moveToFolder();
-                                break;
-                              case _NoteMenuAction.delete:
-                                await _deleteNote();
-                                break;
-                            }
-                          },
-                          itemBuilder: (context) {
-                            return [
-                              PopupMenuItem<_NoteMenuAction>(
-                                value: _NoteMenuAction.toggleVisibility,
-                                child: Text(
-                                  _isShared
-                                      ? 'Set to Private'
-                                      : 'Set to Public',
-                                ),
-                              ),
-                              if (canMoveToFolder)
-                                const PopupMenuItem<_NoteMenuAction>(
-                                  value: _NoteMenuAction.moveTo,
-                                  child: Text('Move To'),
-                                ),
-                              const PopupMenuItem<_NoteMenuAction>(
-                                value: _NoteMenuAction.delete,
-                                child: Text('Delete'),
-                              ),
-                            ];
-                          },
-                        ),
-                ),
-              ),
-            ],
-          ),
-          body: SafeArea(
-            top: false,
-            child: Stack(
-              children: [
-                _isEditing
-                    ? Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          24,
-                          8,
-                          24,
-                          _isToolbarExpanded ? 160 : 120,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
-                              height: titleSlotHeight,
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: Transform.translate(
-                                  offset: const Offset(0, 0.75),
-                                  child: TextField(
-                                    controller: _titleController,
-                                    focusNode: _titleFocusNode,
-                                    decoration: const InputDecoration(
-                                      isCollapsed: true,
-                                      contentPadding: EdgeInsets.zero,
-                                      hintText: 'Title',
-                                      border: InputBorder.none,
-                                    ),
-                                    maxLines: 1,
-                                    style: titleStyle,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '${updatedAt.month}月${updatedAt.day}日 ${updatedAt.hour.toString().padLeft(2, '0')}:${updatedAt.minute.toString().padLeft(2, '0')}  |  $_plainTextLength chars',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: const Color(0xFF8A8175),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Expanded(
-                              child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: SuperEditor(
-                                  documentLayoutKey: _documentLayoutKey,
-                                  focusNode: _editorFocusNode,
-                                  editor: _documentEditor,
-                                  composer: _composer,
-                                  stylesheet: _stylesheet,
-                                  selectionPolicies:
-                                      const SuperEditorSelectionPolicies(
-                                    placeCaretAtEndOfDocumentOnGainFocus: false,
-                                    restorePreviousSelectionOnGainFocus: true,
-                                    clearSelectionWhenEditorLosesFocus: false,
-                                    clearSelectionWhenImeConnectionCloses:
-                                        false,
-                                  ),
-                                  autofocus: widget.note == null,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () => _enterEditMode(focusContent: false),
-                              child: SizedBox(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
                                 height: titleSlotHeight,
                                 child: Align(
                                   alignment: Alignment.centerLeft,
-                                  child: Text(
-                                    _titleController.text.trim().isEmpty
-                                        ? 'Untitled Note'
-                                        : _titleController.text.trim(),
-                                    style: titleStyle,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '${updatedAt.month}月${updatedAt.day}日 ${updatedAt.hour.toString().padLeft(2, '0')}:${updatedAt.minute.toString().padLeft(2, '0')}  |  $_plainTextLength chars',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: const Color(0xFF8A8175),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () => _enterEditMode(focusContent: true),
-                              child: Container(
-                                width: double.infinity,
-                                constraints:
-                                    BoxConstraints(minHeight: contentMinHeight),
-                                padding: const EdgeInsets.fromLTRB(0, 0, 0, 4),
-                                child: SingleColumnDocumentLayout(
-                                  presenter: SingleColumnLayoutPresenter(
-                                    document: _document,
-                                    componentBuilders: defaultComponentBuilders,
-                                    pipeline: [
-                                      SingleColumnStylesheetStyler(
-                                        stylesheet: _stylesheet,
+                                  child: Transform.translate(
+                                    offset: const Offset(0, 0.75),
+                                    child: TextField(
+                                      controller: _titleController,
+                                      focusNode: _titleFocusNode,
+                                      decoration: const InputDecoration(
+                                        isCollapsed: true,
+                                        contentPadding: EdgeInsets.zero,
+                                        hintText: 'Title',
+                                        border: InputBorder.none,
                                       ),
-                                    ],
+                                      maxLines: 1,
+                                      style: titleStyle,
+                                    ),
                                   ),
-                                  componentBuilders: defaultComponentBuilders,
                                 ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 8),
+                              Text(
+                                '${updatedAt.month}月${updatedAt.day}日 ${updatedAt.hour.toString().padLeft(2, '0')}:${updatedAt.minute.toString().padLeft(2, '0')}  |  $_plainTextLength chars',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: const Color(0xFF8A8175),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Expanded(
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: SuperEditor(
+                                    documentLayoutKey: _documentLayoutKey,
+                                    focusNode: _editorFocusNode,
+                                    editor: _documentEditor,
+                                    composer: _composer,
+                                    stylesheet: _stylesheet,
+                                    selectionPolicies:
+                                        const SuperEditorSelectionPolicies(
+                                      placeCaretAtEndOfDocumentOnGainFocus:
+                                          false,
+                                      restorePreviousSelectionOnGainFocus: true,
+                                      clearSelectionWhenEditorLosesFocus: false,
+                                      clearSelectionWhenImeConnectionCloses:
+                                          false,
+                                    ),
+                                    autofocus: widget.note == null,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () =>
+                                    _enterEditMode(focusContent: false),
+                                child: SizedBox(
+                                  height: titleSlotHeight,
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      _titleController.text.trim().isEmpty
+                                          ? 'Untitled Note'
+                                          : _titleController.text.trim(),
+                                      style: titleStyle,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '${updatedAt.month}月${updatedAt.day}日 ${updatedAt.hour.toString().padLeft(2, '0')}:${updatedAt.minute.toString().padLeft(2, '0')}  |  $_plainTextLength chars',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: const Color(0xFF8A8175),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => _enterEditMode(focusContent: true),
+                                child: Container(
+                                  width: double.infinity,
+                                  constraints: BoxConstraints(
+                                      minHeight: contentMinHeight),
+                                  padding:
+                                      const EdgeInsets.fromLTRB(0, 0, 0, 4),
+                                  child: SingleColumnDocumentLayout(
+                                    presenter: SingleColumnLayoutPresenter(
+                                      document: _document,
+                                      componentBuilders:
+                                          defaultComponentBuilders,
+                                      pipeline: [
+                                        SingleColumnStylesheetStyler(
+                                          stylesheet: _stylesheet,
+                                        ),
+                                      ],
+                                    ),
+                                    componentBuilders: defaultComponentBuilders,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                if (_isEditing)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 28,
-                    child: SafeArea(
-                      top: false,
-                      child: Center(
-                        child: _FloatingFormattingToolbar(
-                          onBeforeAction: _rememberCurrentSelection,
-                          isExpanded: _isToolbarExpanded,
-                          primaryActions: const [
-                            _ToolbarAction(
-                              icon: Icons.format_bold_rounded,
-                              tooltip: 'Bold',
-                            ),
-                            _ToolbarAction(
-                              icon: Icons.format_italic_rounded,
-                              tooltip: 'Italic',
-                            ),
-                            _ToolbarAction(
-                              icon: Icons.format_list_bulleted_rounded,
-                              tooltip: 'List',
-                            ),
-                            _ToolbarAction(
-                              icon: Icons.format_list_numbered_rounded,
-                              tooltip: 'Ordered List',
-                            ),
-                            _ToolbarAction(
-                              icon: Icons.format_underlined_rounded,
-                              tooltip: 'Underline',
-                            ),
-                          ],
-                          primaryCallbacks: [
-                            _toggleBold,
-                            _toggleItalic,
-                            _convertToUnorderedList,
-                            _convertToOrderedList,
-                            _toggleUnderline,
-                          ],
-                          expandedActions: _buildExpandedToolbarActions(),
-                          onMore: _showAllFormattingTools,
+                  if (_isEditing)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 28,
+                      child: SafeArea(
+                        top: false,
+                        child: Center(
+                          child: _FloatingFormattingToolbar(
+                            onBeforeAction: _rememberCurrentSelection,
+                            isExpanded: _isToolbarExpanded,
+                            primaryActions: const [
+                              _ToolbarAction(
+                                icon: Icons.format_bold_rounded,
+                                tooltip: 'Bold',
+                              ),
+                              _ToolbarAction(
+                                icon: Icons.format_italic_rounded,
+                                tooltip: 'Italic',
+                              ),
+                              _ToolbarAction(
+                                icon: Icons.format_list_bulleted_rounded,
+                                tooltip: 'List',
+                              ),
+                              _ToolbarAction(
+                                icon: Icons.format_list_numbered_rounded,
+                                tooltip: 'Ordered List',
+                              ),
+                              _ToolbarAction(
+                                icon: Icons.format_underlined_rounded,
+                                tooltip: 'Underline',
+                              ),
+                            ],
+                            primaryCallbacks: [
+                              _toggleBold,
+                              _toggleItalic,
+                              _convertToUnorderedList,
+                              _convertToOrderedList,
+                              _toggleUnderline,
+                            ],
+                            expandedActions: _buildExpandedToolbarActions(),
+                            onMore: _showAllFormattingTools,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         );
@@ -1998,6 +2050,11 @@ class _NoteEditorSnapshot {
         serializedDocument == other.serializedDocument &&
         documentSelection == other.documentSelection;
   }
+
+  bool hasSamePersistedContent(_NoteEditorSnapshot other) {
+    return title == other.title &&
+        serializedDocument == other.serializedDocument;
+  }
 }
 
 class _ResolvedTextSelection {
@@ -2106,6 +2163,11 @@ enum _NoteMenuAction {
   toggleVisibility,
   moveTo,
   delete,
+}
+
+enum _PendingNoteAction {
+  save,
+  discard,
 }
 
 class _FolderSelectionTile extends StatelessWidget {

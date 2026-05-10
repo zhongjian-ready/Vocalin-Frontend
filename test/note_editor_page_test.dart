@@ -14,20 +14,52 @@ Widget buildTestApp() {
     value: DataService(autoInitialize: false),
     child: MaterialApp(
       home: NoteEditorPage(
-        note: Post(
-          id: 1,
-          type: PostType.note,
-          title: 'Title',
-          content: 'I love you!',
-          createdAt: DateTime(2026, 4, 23, 9),
-          updatedAt: DateTime(2026, 4, 23, 9),
-          color: 'yellow',
-          isShared: true,
-        ),
+        note: buildTestNote(),
         startInEditMode: true,
       ),
     ),
   );
+}
+
+Post buildTestNote() {
+  return Post(
+    id: 1,
+    type: PostType.note,
+    title: 'Title',
+    content: 'I love you!',
+    createdAt: DateTime(2026, 4, 23, 9),
+    updatedAt: DateTime(2026, 4, 23, 9),
+    color: 'yellow',
+    isShared: true,
+  );
+}
+
+Future<void> pumpNoteEditorInNavigationStack(
+  WidgetTester tester, {
+  required DataService dataService,
+}) async {
+  final navigatorKey = GlobalKey<NavigatorState>();
+
+  await tester.pumpWidget(
+    ChangeNotifierProvider<DataService>.value(
+      value: dataService,
+      child: MaterialApp(
+        navigatorKey: navigatorKey,
+        home: const Scaffold(body: Center(child: Text('Notes List'))),
+      ),
+    ),
+  );
+
+  navigatorKey.currentState!.push(
+    MaterialPageRoute<void>(
+      builder: (_) => NoteEditorPage(
+        note: buildTestNote(),
+        startInEditMode: true,
+      ),
+    ),
+  );
+
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -305,4 +337,73 @@ void main() {
         SuperEditorInspector.findDocument()!.nodes.first as ParagraphNode;
     expect(updatedParagraph.text.text, '• I love you!');
   });
+
+  testWidgets('back navigation prompts to save and saves before returning', (
+    WidgetTester tester,
+  ) async {
+    final dataService = _RecordingDataService();
+
+    await pumpNoteEditorInNavigationStack(tester, dataService: dataService);
+
+    await tester.enterText(find.byType(TextField).first, 'Updated Title');
+    await tester.pump();
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Save changes?'), findsOneWidget);
+    expect(find.text('Save'), findsOneWidget);
+    expect(find.text('Discard'), findsOneWidget);
+
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(dataService.updateNoteCallCount, 1);
+    expect(dataService.lastUpdatedTitle, 'Updated Title');
+    expect(find.text('Notes List'), findsOneWidget);
+  });
+
+  testWidgets('back navigation discards changes and returns without saving', (
+    WidgetTester tester,
+  ) async {
+    final dataService = _RecordingDataService();
+
+    await pumpNoteEditorInNavigationStack(tester, dataService: dataService);
+
+    await tester.enterText(find.byType(TextField).first, 'Discarded Title');
+    await tester.pump();
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Save changes?'), findsOneWidget);
+
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+
+    expect(dataService.updateNoteCallCount, 0);
+    expect(find.text('Notes List'), findsOneWidget);
+  });
+}
+
+class _RecordingDataService extends DataService {
+  _RecordingDataService() : super(autoInitialize: false);
+
+  int updateNoteCallCount = 0;
+  String? lastUpdatedTitle;
+
+  @override
+  bool get isLoading => false;
+
+  @override
+  Future<void> updateNote(
+    int noteId, {
+    String? title,
+    required String content,
+    required bool isShared,
+    int? groupId,
+  }) async {
+    updateNoteCallCount += 1;
+    lastUpdatedTitle = title;
+  }
 }

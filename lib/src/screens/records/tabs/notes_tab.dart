@@ -16,6 +16,7 @@ class NotesTab extends StatefulWidget {
 
 class _NotesTabState extends State<NotesTab> {
   late final TextEditingController _searchController;
+  final Map<String, GlobalKey> _filterChipKeys = {};
   String _selectedFilterKey = _NoteFilterOption.allKey;
 
   @override
@@ -31,6 +32,30 @@ class _NotesTabState extends State<NotesTab> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  GlobalKey _filterChipKeyFor(String key) {
+    return _filterChipKeys.putIfAbsent(key, GlobalKey.new);
+  }
+
+  void _scrollSelectedFilterIntoView(String filterKey) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      final chipContext = _filterChipKeyFor(filterKey).currentContext;
+      if (chipContext == null) {
+        return;
+      }
+
+      Scrollable.ensureVisible(
+        chipContext,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   @override
@@ -105,40 +130,51 @@ class _NotesTabState extends State<NotesTab> {
                           children: [
                             for (final option in filterOptions)
                               Padding(
+                                key: _filterChipKeyFor(option.key),
                                 padding: const EdgeInsets.only(right: 8),
-                                child: ChoiceChip(
-                                  selected: activeFilter == option.key,
-                                  avatar: activeFilter == option.key
-                                      ? const Icon(
-                                          Icons.check_rounded,
-                                          size: 16,
-                                        )
+                                child: GestureDetector(
+                                  onLongPress: option.isDeletable
+                                      ? () => _confirmDeleteFolder(
+                                            context,
+                                            dataService,
+                                            option,
+                                          )
                                       : null,
-                                  label: Text(option.label),
-                                  onSelected: (_) {
-                                    setState(() {
-                                      _selectedFilterKey = option.key;
-                                    });
-                                  },
-                                  selectedColor: const Color(0xFFE6E0D5),
-                                  backgroundColor: Colors.white,
-                                  labelStyle: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: activeFilter == option.key
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                    side: BorderSide(
-                                      color: activeFilter == option.key
-                                          ? Colors.transparent
-                                          : const Color(0xFFD9CDBE),
+                                  child: ChoiceChip(
+                                    selected: activeFilter == option.key,
+                                    avatar: activeFilter == option.key
+                                        ? const Icon(
+                                            Icons.check_rounded,
+                                            size: 16,
+                                          )
+                                        : null,
+                                    label: Text(option.label),
+                                    onSelected: (_) {
+                                      setState(() {
+                                        _selectedFilterKey = option.key;
+                                      });
+                                      _scrollSelectedFilterIntoView(option.key);
+                                    },
+                                    selectedColor: const Color(0xFFE6E0D5),
+                                    backgroundColor: Colors.white,
+                                    labelStyle: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: activeFilter == option.key
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
                                     ),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 9,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                      side: BorderSide(
+                                        color: activeFilter == option.key
+                                            ? Colors.transparent
+                                            : const Color(0xFFD9CDBE),
+                                      ),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 9,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -218,7 +254,7 @@ class _NotesTabState extends State<NotesTab> {
                                               height: 1.5,
                                               color: Color(0xFF52473B),
                                             ),
-                                            maxLines: 4,
+                                            maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                           const SizedBox(height: 12),
@@ -294,10 +330,12 @@ class _NotesTabState extends State<NotesTab> {
     }
 
     for (final folderName in dataService.noteFoldersForCurrentGroup) {
+      final folder = dataService.noteFolderForName(folderName);
       options.add(
         _NoteFilterOption(
           key: 'folder:$folderName',
           label: folderName,
+          isDeletable: folder?.deletable ?? false,
         ),
       );
     }
@@ -348,11 +386,48 @@ class _NotesTabState extends State<NotesTab> {
       return;
     }
 
-    dataService.createNoteFolder(normalizedName);
+    await dataService.createNoteFolder(normalizedName);
 
     setState(() {
       _selectedFilterKey = 'folder:$normalizedName';
     });
+    _scrollSelectedFilterIntoView(_selectedFilterKey);
+  }
+
+  Future<void> _confirmDeleteFolder(
+    BuildContext context,
+    DataService dataService,
+    _NoteFilterOption option,
+  ) async {
+    if (!option.isDeletable) {
+      return;
+    }
+
+    final folder = dataService.noteFolderForName(option.label);
+    if (folder == null || !folder.deletable) {
+      return;
+    }
+
+    final shouldDelete = await showRecordDeleteConfirmationDialog(
+      context,
+      title: 'Delete Folder',
+      message: 'Delete "$option.label" folder?',
+    );
+    if (!shouldDelete) {
+      return;
+    }
+
+    await dataService.deleteNoteFolder(folder.id);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (_selectedFilterKey == option.key) {
+      setState(() {
+        _selectedFilterKey = _NoteFilterOption.allKey;
+      });
+    }
   }
 
   Future<void> _openNotePage(BuildContext context, {Post? note}) async {
@@ -382,13 +457,18 @@ class _NotesTabState extends State<NotesTab> {
 }
 
 class _NoteFilterOption {
-  const _NoteFilterOption({required this.key, required this.label});
+  const _NoteFilterOption({
+    required this.key,
+    required this.label,
+    this.isDeletable = false,
+  });
 
   static const allKey = 'all';
   static const shareKey = 'share';
 
   final String key;
   final String label;
+  final bool isDeletable;
 }
 
 class _FilterPill extends StatelessWidget {

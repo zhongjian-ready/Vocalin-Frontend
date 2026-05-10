@@ -75,7 +75,7 @@ void main() {
             },
           ),
         ],
-        child: MaterialApp(
+        child: const MaterialApp(
           initialRoute: AppRoutes.records,
           onGenerateRoute: AppRouter.onGenerateRoute,
         ),
@@ -105,7 +105,7 @@ void main() {
             },
           ),
         ],
-        child: MaterialApp(
+        child: const MaterialApp(
           initialRoute: AppRoutes.messages,
           onGenerateRoute: AppRouter.onGenerateRoute,
         ),
